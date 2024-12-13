@@ -3,195 +3,415 @@
 # dependencies = [
 #   "httpx",
 #   "pandas",
+#   "numpy",
 #   "seaborn",
 #   "matplotlib",
-#   "scikit-learn",
+#   "scikit-learn"
 # ]
 # ///
 
 import os
 import sys
+import json
 import httpx
 import pandas as pd
+import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.ensemble import IsolationForest
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
+from typing import Dict, Any, List
+import glob
 from sklearn.impute import SimpleImputer
-import os  # Make sure to import os for environment variable access
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sklearn.feature_selection import mutual_info_regression
+from sklearn.pipeline import Pipeline
 
-# Constants
-API_URL = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
-API_TOKEN = os.environ.get("AIPROXY_TOKEN")  # Use environment variable for the token
+sns.set_theme(style="whitegrid")
 
-# Function to read CSV files
-def read_csv_file(filename):
-    try:
-        return pd.read_csv(filename, encoding="utf-8")
-    except UnicodeDecodeError:
-        print("Warning: UTF-8 encoding failed. Trying ISO-8859-1 (Latin-1).")
-        return pd.read_csv(filename, encoding="ISO-8859-1")
 
-# Perform data analysis
-def analyze_data(df):
-    # Separate numeric and non-numeric columns
-    numeric_df = df.select_dtypes(include=["number"])
-    non_numeric_df = df.select_dtypes(exclude=["number"])
-    
-    # Handle missing values for numeric columns
-    numeric_imputer = SimpleImputer(strategy='mean')
-    df[numeric_df.columns] = numeric_imputer.fit_transform(numeric_df)
-    
-    # Handle missing values for non-numeric columns
-    non_numeric_imputer = SimpleImputer(strategy='most_frequent')
-    df[non_numeric_df.columns] = non_numeric_imputer.fit_transform(non_numeric_df)
+class AutomatedAnalysis:
+    def _init_(self, csv_path: str, aiproxy_token: str):
+        """
+        Initialize the automated analysis class
 
-    analysis = {
-        "summary": df.describe(include="all").to_dict(),
-        "missing_values": df.isnull().sum().to_dict(),
-        "correlation": numeric_df.corr().to_dict(),
-        "outliers": detect_outliers(df),
-        "clusters": cluster_analysis(df),
-    }
-    return analysis
+        Args:
+            csv_path (str): Path to the input CSV file
+            aiproxy_token (str): AI Proxy authentication token
+        """
+        self.csv_path = csv_path
+        self.aiproxy_token = aiproxy_token
+        self.df = None
+        self.analysis_results = {}
+        self.output_dir = None
 
-# Detect outliers using Isolation Forest
-def detect_outliers(df):
-    numeric_df = df.select_dtypes(include=["number"])
-    if numeric_df.empty:
-        return "No numeric data for outlier detection."
-    clf = IsolationForest(contamination=0.05, random_state=42)
-    outliers = clf.fit_predict(numeric_df)
-    return pd.Series(outliers).value_counts().to_dict()
+        # Create output directory
+        # self._create_output_directory()
 
-# Perform clustering analysis
-def cluster_analysis(df):
-    numeric_df = df.select_dtypes(include=["number"])
-    if numeric_df.shape[0] > 1 and numeric_df.shape[1] > 1:
-        scaler = StandardScaler()
-        scaled_data = scaler.fit_transform(numeric_df.dropna())
-        kmeans = KMeans(n_clusters=3, random_state=42)
-        clusters = kmeans.fit_predict(scaled_data)
-        cluster_centroids = pd.DataFrame(kmeans.cluster_centers_, columns=numeric_df.columns)
-        cluster_summary = {
-            "cluster_counts": pd.Series(clusters).value_counts().to_dict(),
-            "centroids": cluster_centroids.to_dict(orient="list")
+        # Load the CSV
+        self._load_csv()
+
+    # def _create_output_directory(self):
+    #     """
+    #     Create an output directory using the dataset filename
+    #     """
+    #     # Get the base filename without extension
+    #     base_filename = os.path.splitext(os.path.basename(self.csv_path))[0]
+    #
+    #     # Create directory
+    #     self.output_dir = os.path.join(os.getcwd(), f"{base_filename}")
+    #     os.makedirs(self.output_dir, exist_ok=True)
+
+    def _load_csv(self):
+        """
+        Load the CSV file and perform initial preprocessing
+        """
+        try:
+            self.df = pd.read_csv(self.csv_path, encoding='latin-1')
+            # Remove leading/trailing whitespaces from column names
+            self.df.columns = self.df.columns.str.strip()
+        except Exception as e:
+            print(f"Error loading CSV: {e}")
+            sys.exit(1)
+
+    def _call_llm(self, messages: List[Dict[str, str]], max_tokens: int = 1000) -> str:
+        """
+        Call the LLM endpoint with given messages
+
+        Args:
+            messages (List[Dict]): List of message dictionaries
+            max_tokens (int): Maximum tokens to generate
+
+        Returns:
+            str: LLM response
+        """
+        endpoint = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.aiproxy_token}",
+            "Content-Type": "application/json"
         }
-        return cluster_summary
-    return "Insufficient data for clustering."
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            "max_tokens": max_tokens
+        }
 
-# Generate visualizations
-def generate_visualizations(df, output_dir):
-    charts = []
-    numeric_df = df.select_dtypes(include=["number"])
+        try:
+            with httpx.Client() as client:
+                response = client.post(endpoint, headers=headers, timeout=30, json=payload)
+                print(response.json())
+                response.raise_for_status()
+                return response.json()['choices'][0]['message']['content']
+        except Exception as e:
+            print(f"LLM API call error: {e}")
+            return ""
 
-    # Correlation heatmap
-    if numeric_df.shape[1] > 1:
-        plt.figure(figsize=(10, 6))
-        sns.heatmap(numeric_df.corr(), annot=True, cmap="coolwarm")
-        plt.title("Correlation Matrix")
-        plt.savefig(os.path.join(output_dir, "correlation_matrix.png"))
-        charts.append("correlation_matrix.png")
+    def data_summary(self) -> Dict[str, Any]:
+        """
+        Generate a comprehensive data summary
 
-    # Distribution plots
-    for col in numeric_df.columns:
-        plt.figure(figsize=(8, 5))
-        sns.histplot(numeric_df[col].dropna(), kde=True)
-        plt.title(f"Distribution of {col}")
-        filename = f"{col}_distribution.png"
-        plt.savefig(os.path.join(output_dir, filename))
-        charts.append(filename)
+        Returns:
+            Dict: Summary of the dataset
+        """
+        summary = {
+            "total_rows": len(self.df),
+            "total_columns": len(self.df.columns),
+            "column_types": dict(self.df.dtypes),
+            "missing_values": self.df.isnull().sum().to_dict(),
+            "descriptive_stats": self.df.describe().to_dict()
+        }
+        return summary
 
-    # Missing values heatmap
-    if df.isnull().sum().any():
-        plt.figure(figsize=(10, 6))
-        sns.heatmap(df.isnull(), cbar=False, cmap="viridis")
-        plt.title("Missing Values Heatmap")
-        filename = "missing_values_heatmap.png"
-        plt.savefig(os.path.join(output_dir, filename))
-        charts.append(filename)
+    def feature_importance(self) -> Dict[str, float]:
+        """
+        Calculate feature importance using mutual information
 
-    return charts
+        Returns:
+            Dict: Feature importance scores
+        """
+        # Prepare numeric columns
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+        new_data = self.df[numeric_cols].dropna()
+        if len(new_data.columns) < 2:
+            return {}
 
-# Send data to LLM
-def send_to_llm(messages):
-    headers = {
-        "Authorization": f"Bearer {API_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    try:
-        response = httpx.post(
-            API_URL,
-            json=messages,
-            headers=headers,
-            timeout=30.0
-        )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except httpx.ReadTimeout:
-        print("Error: The request to the AI Proxy timed out. Try again later.")
-        sys.exit(1)
+        # Assume the last column is the target variable
+        X = new_data.iloc[:, :-1]
+        y = new_data.iloc[:, -1]
 
-# Narrate story based on analysis
-def narrate_story(analysis, charts, output_dir):
-    prompt = f"""
-    Create a README.md narrating this analysis:
-    Data Summary: {analysis['summary']}
-    Missing Values: {analysis['missing_values']}
-    Correlation Matrix: {analysis['correlation']}
-    Outlier Detection: {analysis['outliers']}
-    Clustering Analysis: {analysis['clusters']}
-    Attach these charts: {charts}.
+        # Calculate mutual information
+        mi_scores = mutual_info_regression(X, y)
+        importance = dict(zip(X.columns, mi_scores))
+        return importance
 
-    Key prompts to use:
-    - Identify anomalies or surprising patterns from the analysis.
-    - Suggest potential business decisions or insights based on clustering.
-    - Explain why certain correlations are strong or weak.
-    - Hypothesize causes for missing values and how to handle them.
-    - Provide recommendations for future analysis or data collection.
+    def correlation_analysis(self) -> np.ndarray:
+        """
+        Perform correlation analysis
 
-    Additional Prompts:
-    - What are the key trends or patterns in the dataset?
-    - Summarize the structure and content of this dataset.
-    - Suggest methods to handle missing data in this dataset.
-    - Identify potential causes of detected outliers.
-    - Describe the characteristics of identified clusters and their potential business implications.
-    - Evaluate the overall quality of this dataset.
-    - What additional data would improve the insights drawn from this dataset?
-    - Draft a summary of findings and their implications for decision-making.
-    """
-    messages = {
-        "model": "gpt-4o-mini",
-        "messages": [
-            {"role": "system", "content": "You are a Markdown writer."},
-            {"role": "user", "content": prompt}
-        ],
-    }
-    story = send_to_llm(messages)
-    with open(os.path.join(output_dir, "README.md"), "w") as file:
-        file.write(story)
+        Returns:
+            np.ndarray: Correlation matrix
+        """
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+        correlation_matrix = self.df[numeric_cols].corr()
+        return correlation_matrix
 
-# Main function
+    def cluster_analysis(self, n_clusters: int = 3) -> Dict[str, Any]:
+        """
+        Perform cluster analysis using K-means
+
+        Args:
+            n_clusters (int): Number of clusters to create
+
+        Returns:
+            Dict: Cluster analysis results
+        """
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+
+        if len(numeric_cols) < 2:
+            return {}
+
+        # Standardize the features
+        scaler = Pipeline([
+            ('imp', SimpleImputer(missing_values=np.nan, strategy='mean')),
+            ('scaler', StandardScaler()),
+        ])
+
+        X_scaled = scaler.fit_transform(self.df[numeric_cols])
+
+        # Perform K-means clustering
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        cluster_labels = kmeans.fit_predict(X_scaled)
+
+        return {
+            "cluster_centers": kmeans.cluster_centers_,
+            "cluster_labels": cluster_labels,
+            "inertia": kmeans.inertia_
+        }
+
+    def create_visualizations(self):
+        """
+        Create multiple comprehensive visualizations based on the analysis
+        """
+        # 1. Main Analysis Visualization
+        plt.figure(figsize=(20, 15))
+        plt.subplots_adjust(hspace=0.5, wspace=0.3)
+
+        # Correlation Heatmap
+        plt.subplot(2, 2, 1)
+        corr_matrix = self.correlation_analysis()
+        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0,
+                    square=True, linewidths=0.5, cbar_kws={"shrink": .8})
+        plt.title('Correlation Heatmap', fontsize=10)
+        plt.tight_layout()
+
+        # Feature Importance Bar Plot
+        plt.subplot(2, 2, 2)
+        feature_imp = self.feature_importance()
+        if feature_imp:
+            plt.bar(feature_imp.keys(), feature_imp.values())
+            plt.title('Feature Importance', fontsize=10)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+
+        # Distribution Boxplot
+        plt.subplot(2, 2, 3)
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+        if len(numeric_cols) > 0:
+            sns.boxplot(data=self.df[numeric_cols])
+            plt.title('Distribution of Numeric Features', fontsize=10)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+
+        # PCA Variance Explained
+        plt.subplot(2, 2, 4)
+        if len(numeric_cols) > 1:
+            pca = PCA()
+            scaler = Pipeline([
+                ('imp', SimpleImputer(missing_values=np.nan, strategy='mean')),
+                ('scaler', StandardScaler()),
+            ])
+            pca.fit(scaler.fit_transform(self.df[numeric_cols]))
+            plt.plot(np.cumsum(pca.explained_variance_ratio_))
+            plt.title('PCA Variance Explained', fontsize=10)
+            plt.xlabel('Number of Components')
+            plt.ylabel('Cumulative Explained Variance')
+
+        # Save main visualizations
+        main_viz_path = os.path.join('analysis_visualizations.png')
+        plt.savefig(main_viz_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # 2. Distribution Pairplot
+        plt.figure(figsize=(15, 10))
+        sns.pairplot(self.df[numeric_cols], diag_kind='kde')
+        plt.suptitle('Pairwise Distribution and Relationships', y=1.02)
+
+        # Save pairplot
+        pairplot_path = os.path.join('distribution_pairplot.png')
+        plt.savefig(pairplot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        return {
+            'main_viz': main_viz_path,
+            'pairplot': pairplot_path
+        }
+
+    def generate_markdown_tables(self) -> Dict[str, str]:
+        """
+        Generate markdown tables for different analyses
+
+        Returns:
+            Dict: Markdown formatted tables
+        """
+        tables = {}
+
+        # 1. Descriptive Statistics Table
+        desc_stats = self.df.describe()
+        desc_table = "| Statistic | " + " | ".join(desc_stats.columns) + " |\n"
+        desc_table += "|" + "|".join(["---"] * (len(desc_stats.columns) + 1)) + "|\n"
+        for index, row in desc_stats.iterrows():
+            desc_table += f"| {index} | " + " | ".join([f"{val:.2f}" for val in row]) + " |\n"
+        tables['descriptive_stats'] = desc_table
+
+        # 2. Feature Importance Table
+        feature_imp = self.feature_importance()
+        if feature_imp:
+            imp_table = "| Feature | Importance |\n|---|---|\n"
+            for feature, importance in sorted(feature_imp.items(), key=lambda x: x[1], reverse=True):
+                imp_table += f"| {feature} | {importance:.4f} |\n"
+            tables['feature_importance'] = imp_table
+
+        # 3. Correlation Table
+        corr_matrix = self.correlation_analysis()
+        corr_table = "| Feature | " + " | ".join(corr_matrix.columns) + " |\n"
+        corr_table += "|" + "|".join(["---"] * (len(corr_matrix.columns) + 1)) + "|\n"
+        for index, row in corr_matrix.iterrows():
+            corr_table += f"| {index} | " + " | ".join([f"{val:.2f}" for val in row]) + " |\n"
+        tables['correlation'] = corr_table
+
+        return tables
+
+    def generate_narrative(self, tables: Dict[str, str], viz_paths: Dict[str, str]) -> str:
+        """
+        Generate a narrative markdown report
+
+        Args:
+            tables (Dict[str, str]): Markdown tables to include in the narrative
+            viz_paths (Dict[str, str]): Paths to visualization files
+
+        Returns:
+            str: Markdown formatted narrative
+        """
+        # Prepare context for LLM
+        context = f"""
+        Dataset Information:
+        - Total Rows: {len(self.df)}
+        - Total Columns: {len(self.df.columns)}
+        - Column Types: {dict(self.df.dtypes)}
+
+        Missing Values:
+        {self.df.isnull().sum()}
+
+        Descriptive Statistics:
+        {tables.get('descriptive_stats', 'No descriptive stats available')}
+
+        Feature Importance:
+        {tables.get('feature_importance', 'No feature importance available')}
+        """
+
+        # Call LLM to generate narrative
+        messages = [
+            {"role": "system",
+             "content": "You are a data storyteller. Help create an engaging narrative about a dataset."},
+            {"role": "user",
+             "content": f"Create a compelling markdown story about this dataset. Include sections on data description, key insights, and potential implications. Context:\n{context}"}
+        ]
+
+        narrative = self._call_llm(messages, max_tokens=1500)
+
+        # Append visualizations
+        narrative += "\n\n## Visualizations\n\n"
+
+        # Add main visualization
+        if viz_paths.get('main_viz'):
+            narrative += f"### Analysis Visualizations\n"
+            narrative += f"![Analysis Visualizations](analysis_visualizations.png)\n\n"
+
+        # Add pairplot
+        if viz_paths.get('pairplot'):
+            narrative += f"### Pairwise Distribution\n"
+            narrative += f"![Pairwise Distribution](distribution_pairplot.png)\n\n"
+
+        # Append tables to the narrative
+        narrative += "\n## Descriptive Statistics\n\n"
+        narrative += tables.get('descriptive_stats', 'No descriptive stats available')
+
+        narrative += "\n## Feature Importance\n\n"
+        narrative += tables.get('feature_importance', 'No feature importance available')
+
+        narrative += "\n## Correlation Matrix\n\n"
+        narrative += tables.get('correlation', 'No correlation data available')
+
+        return narrative
+
+    def run_analysis(self):
+        """
+        Run complete analysis workflow
+        """
+        # Perform analyses
+        summary = self.data_summary()
+        feature_imp = self.feature_importance()
+        correlation = self.correlation_analysis()
+        clusters = self.cluster_analysis()
+
+        # Create visualizations
+        viz_paths = self.create_visualizations()
+
+        # Generate markdown tables
+        tables = self.generate_markdown_tables()
+
+        # Generate narrative
+        narrative = self.generate_narrative(tables, viz_paths)
+
+        # Save narrative to README.md in the output directory
+        readme_path = os.path.join('README.md')
+        with open(readme_path, 'w') as f:
+            f.write(narrative)
+
+        return {
+            "summary": summary,
+            "feature_importance": feature_imp,
+            "correlation": correlation,
+            "clusters": clusters
+        }
+
+
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python autolysis.py <dataset.csv>")
+    # Check if CSV file is provided
+    if len(sys.argv) < 2:
+        print("Usage: python autolysis.py <csv_file>")
         sys.exit(1)
 
-    dataset_path = sys.argv[1]
-    output_dir = os.path.splitext(os.path.basename(dataset_path))[0]
+    # Get CSV path and AI Proxy token
+    csv_path = sys.argv[1]
+    aiproxy_token = os.environ.get("AIPROXY_TOKEN")
 
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    if not aiproxy_token:
+        print("AIPROXY_TOKEN environment variable not set")
+        sys.exit(1)
+    # Run analysis
+    if len(sys.argv) > 2:
+        csv_files = glob.glob("*.csv")
+        for csv_path in csv_files:
+            print("Loaded CSV file:", csv_path)
+            analyzer = AutomatedAnalysis(csv_path, aiproxy_token)
+            analyzer.run_analysis()
+    else:
+        analyzer = AutomatedAnalysis(csv_path, aiproxy_token)
+        analyzer.run_analysis()
 
-    try:
-        df = read_csv_file(dataset_path)
-        analysis = analyze_data(df)
-        charts = generate_visualizations(df, output_dir)
-        narrate_story(analysis, charts, output_dir)
-        print(f"Analysis complete. See the '{output_dir}' directory for results.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    print(f"Analysis complete. Results saved to {analyzer.output_dir}")
 
-if __name__ == "__main__":
+
+if _name_ == "_main_":
     main()
