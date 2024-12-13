@@ -193,7 +193,7 @@ class AutomatedAnalysis:
         Create multiple comprehensive visualizations based on the analysis
         """
         # 1. Main Analysis Visualization
-        plt.figure(figsize=(20, 15))
+        plt.figure(figsize=(15, 15))
         plt.subplots_adjust(hspace=0.5, wspace=0.3)
 
         # Correlation Heatmap
