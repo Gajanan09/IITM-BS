@@ -1,357 +1,417 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = [
-#     "ipykernel",
-#     "matplotlib",
-#     "numpy",
-#     "pandas",
-#     "requests",
-#     "seaborn",
+#   "httpx",
+#   "pandas",
+#   "numpy",
+#   "seaborn",
+#   "matplotlib",
+#   "scikit-learn"
 # ]
 # ///
 
-import sys
-import requests
-import json
-# from google.colab import userdata
 import os
-import glob
-import base64
-from io import StringIO
+import sys
+import json
+import httpx
 import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from typing import Dict, Any, List
+import glob
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sklearn.feature_selection import mutual_info_regression
+from sklearn.pipeline import Pipeline
 
-token = os.environ["AIPROXY_TOKEN"]
-
-# give unique value counts of categorical column
+sns.set_theme(style="whitegrid")
 
 
+class AutomatedAnalysis:
+    def __init__(self, csv_path: str, aiproxy_token: str):
+        """
+        Initialize the automated analysis class
 
-## to be used in open ai function calling
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_categorical_numerical_column_name",
-            "description": "Get the categorical column names that can be useful in plotting python seaborn pairplot with hue parameter for data visualisation, when the users ask help me with pairplot.Suggest the columns having unique value less than 15 else visualization is not possible. For numerical names suggest columns having data type as int or float but avoid columns having id value",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "categorical_column": {
-                        "type": "string",
-                        "description": "List of categorical column names can be used in hue parameter of seaborn pairplot",
-                    },
-                     "numerical_column": {
-                        "type": "string",
-                        "description": "List of numerical column names that can be used seaborn pairplot, do not provide column names that contain  id value",
-                    },
-                },
-                "required": ["categorical_column", "numerical_column"],
-                "additionalProperties": False,
-            },
+        Args:
+            csv_path (str): Path to the input CSV file
+            aiproxy_token (str): AI Proxy authentication token
+        """
+        self.csv_path = csv_path
+        self.aiproxy_token = aiproxy_token
+        self.df = None
+        self.analysis_results = {}
+        self.output_dir = None
+
+        # Create output directory
+        # self._create_output_directory()
+
+        # Load the CSV
+        self._load_csv()
+
+    # def _create_output_directory(self):
+    #     """
+    #     Create an output directory using the dataset filename
+    #     """
+    #     # Get the base filename without extension
+    #     base_filename = os.path.splitext(os.path.basename(self.csv_path))[0]
+    #
+    #     # Create directory
+    #     self.output_dir = os.path.join(os.getcwd(), f"{base_filename}")
+    #     os.makedirs(self.output_dir, exist_ok=True)
+
+    def _load_csv(self):
+        """
+        Load the CSV file and perform initial preprocessing
+        """
+        try:
+            self.df = pd.read_csv(self.csv_path, encoding='latin-1')
+            # Remove leading/trailing whitespaces from column names
+            self.df.columns = self.df.columns.str.strip()
+        except Exception as e:
+            print(f"Error loading CSV: {e}")
+            sys.exit(1)
+
+    def _call_llm(self, messages: List[Dict[str, str]], max_tokens: int = 1000) -> str:
+        """
+        Call the LLM endpoint with given messages
+
+        Args:
+            messages (List[Dict]): List of message dictionaries
+            max_tokens (int): Maximum tokens to generate
+
+        Returns:
+            str: LLM response
+        """
+        endpoint = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.aiproxy_token}",
+            "Content-Type": "application/json"
         }
-    }
-]
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            "max_tokens": max_tokens
+        }
 
+        try:
+            with httpx.Client() as client:
+                response = client.post(endpoint, headers=headers, timeout=30, json=payload)
+                print(response.json())
+                response.raise_for_status()
+                return response.json()['choices'][0]['message']['content']
+        except Exception as e:
+            print(f"LLM API call error: {e}")
+            return ""
 
-# openai function calling with the above tools created
+    def data_summary(self) -> Dict[str, Any]:
+        """
+        Generate a comprehensive data summary
 
-def get_categorical_numerical_column_name(categorical_column, folder,df, numerical_column):
-  import seaborn as sns
-  import matplotlib.pyplot as plt
-  """Get the categorical column names that can be useful in plotting python seaborn pairplot with hue parameter for data visualisation, when the users ask help me with pairplot"""
-  cur_dic =  os.getcwd()
-  os.chdir(folder)
-  print(f"num cols: {numerical_column}")
-  print(f"cat colms : {categorical_column}")
+        Returns:
+            Dict: Summary of the dataset
+        """
+        summary = {
+            "total_rows": len(self.df),
+            "total_columns": len(self.df.columns),
+            "column_types": dict(self.df.dtypes),
+            "missing_values": self.df.isnull().sum().to_dict(),
+            "descriptive_stats": self.df.describe().to_dict()
+        }
+        return summary
 
-  #convert the numerical column to list
-  num_col = []
-  for i in numerical_column.split(','):
-    num_col.append(i.strip())
+    def feature_importance(self) -> Dict[str, float]:
+        """
+        Calculate feature importance using mutual information
 
+        Returns:
+            Dict: Feature importance scores
+        """
+        # Prepare numeric columns
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+        new_data = self.df[numeric_cols].dropna()
+        if len(new_data.columns) < 2:
+            return {}
 
-  try:
-    for col in categorical_column.split(','):
+        # Assume the last column is the target variable
+        X = new_data.iloc[:, :-1]
+        y = new_data.iloc[:, -1]
 
-      if col.strip() != '':
-        print(f"Generating pairplot for {col}")
-        plt.figure(figsize=(10, 6))
+        # Calculate mutual information
+        mi_scores = mutual_info_regression(X, y)
+        importance = dict(zip(X.columns, mi_scores))
+        return importance
 
-        #append the categorical column
-        if df[col.strip()].nunique() <15:
-          num_col.append(col.strip())
-          sns.pairplot(df[num_col],corner=True,hue=col.strip())
-          plt.savefig(f"paitplot_{col}.png")
-          plt.close()
-          print(f"pairplot generation completed")
-        else:
-          print(f"skipping pairplot generation as unique value of categorical column is too high")
+    def correlation_analysis(self) -> np.ndarray:
+        """
+        Perform correlation analysis
 
-      else:
-        print(f"Generating pairplot for dataframe")
-        sns.pairplot(df[num_col],corner=True)
-        plt.savefig("paitplot.png")
+        Returns:
+            np.ndarray: Correlation matrix
+        """
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+        correlation_matrix = self.df[numeric_cols].corr()
+        return correlation_matrix
+
+    def cluster_analysis(self, n_clusters: int = 3) -> Dict[str, Any]:
+        """
+        Perform cluster analysis using K-means
+
+        Args:
+            n_clusters (int): Number of clusters to create
+
+        Returns:
+            Dict: Cluster analysis results
+        """
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+
+        if len(numeric_cols) < 2:
+            return {}
+
+        # Standardize the features
+        scaler = Pipeline([
+            ('imp', SimpleImputer(missing_values=np.nan, strategy='mean')),
+            ('scaler', StandardScaler()),
+        ])
+
+        X_scaled = scaler.fit_transform(self.df[numeric_cols])
+
+        # Perform K-means clustering
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        cluster_labels = kmeans.fit_predict(X_scaled)
+
+        return {
+            "cluster_centers": kmeans.cluster_centers_,
+            "cluster_labels": cluster_labels,
+            "inertia": kmeans.inertia_
+        }
+
+    def create_visualizations(self):
+        """
+        Create multiple comprehensive visualizations based on the analysis
+        """
+        # 1. Main Analysis Visualization
+        plt.figure(figsize=(20, 15))
+        plt.subplots_adjust(hspace=0.5, wspace=0.3)
+
+        # Correlation Heatmap
+        plt.subplot(2, 2, 1)
+        corr_matrix = self.correlation_analysis()
+        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0,
+                    square=True, linewidths=0.5, cbar_kws={"shrink": .8})
+        plt.title('Correlation Heatmap', fontsize=10)
+        plt.tight_layout()
+
+        # Feature Importance Bar Plot
+        plt.subplot(2, 2, 2)
+        feature_imp = self.feature_importance()
+        if feature_imp:
+            plt.bar(feature_imp.keys(), feature_imp.values())
+            plt.title('Feature Importance', fontsize=10)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+
+        # Distribution Boxplot
+        plt.subplot(2, 2, 3)
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+        if len(numeric_cols) > 0:
+            sns.boxplot(data=self.df[numeric_cols])
+            plt.title('Distribution of Numeric Features', fontsize=10)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+
+        # PCA Variance Explained
+        plt.subplot(2, 2, 4)
+        if len(numeric_cols) > 1:
+            pca = PCA()
+            scaler = Pipeline([
+                ('imp', SimpleImputer(missing_values=np.nan, strategy='mean')),
+                ('scaler', StandardScaler()),
+            ])
+            pca.fit(scaler.fit_transform(self.df[numeric_cols]))
+            plt.plot(np.cumsum(pca.explained_variance_ratio_))
+            plt.title('PCA Variance Explained', fontsize=10)
+            plt.xlabel('Number of Components')
+            plt.ylabel('Cumulative Explained Variance')
+
+        # Save main visualizations
+        main_viz_path = os.path.join('analysis_visualizations.png')
+        plt.savefig(main_viz_path, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"pairplot generation completed")
-  except Exception as e:
-    print(f'pairplot generation has failed {e}')
-  os.chdir(cur_dic)    
 
-## function to get image from text of python code
+        # 2. Distribution Pairplot
+        plt.figure(figsize=(15, 10))
+        sns.pairplot(self.df[numeric_cols], diag_kind='kde')
+        plt.suptitle('Pairwise Distribution and Relationships', y=1.02)
 
-def generate_image_from_text_input(folder,text,df):
-  text = text.replace("`",'')
-  text = text.replace("python",'')
-  cur_dic =  os.getcwd()
-  try:
-    ## change the directory to store the image
-    os.chdir(folder)
-    exec(text)
-    print('Generated image successfully')
-    return 'success'
-  except Exception as e:
-    print(e)
-    print('Generated image failed!!')
-    return ('python code has failed with the error {e}')
+        # Save pairplot
+        pairplot_path = os.path.join('distribution_pairplot.png')
+        plt.savefig(pairplot_path, dpi=300, bbox_inches='tight')
+        plt.close()
 
-  os.chdir(cur_dic)
-
-
-def main(filename,token):
-    print("Hello from project2!")
-    
-
-    headers = {
-    "Content-Type": "application/json",
-    "Authorization": f"Bearer {token}"
-}
-
-
-    df = pd.read_csv(filename,encoding='latin-1')
-    filename =  filename.split('/')[-1]
-
-    #create the folder with file name to store the results
-    folder =  filename.split('/')[-1].replace('.csv','')
-    try:
-      os.mkdir(folder)
-      print('folder created successfully')
-    except:
-      print('folder already present')
-
-    current_directory = os.getcwd()
-    folder = os.path.join(current_directory, folder)
-
-    
-    
-
-    message = {}
-    # Use StringIO to capture the output of df.info()
-    buffer = StringIO()
-    df.info(buf=buffer)
-    text = buffer.getvalue()
-
-    message['dataframe column details'] = text
-    text = df.describe().to_dict()
-    message['dataframe describe'] = text
-    temp = ''
-    text_unique = ''
-    for col in df.columns:
-        if df[col].dtype == 'object':  # Check for categorical columns (object dtype)
-            unique_counts = df[col].nunique()
-            temp = f"Unique value counts for column '{col}':\n{unique_counts}\n"
-            text_unique = temp+ ' '+ text_unique
-    message['dataframe categorical column'] = text_unique
-      
-
-
-
-        
-    ## 1st prompt asking about python codes for chart
-    data = {
-        "model": "gpt-4o-mini",  # or another suitable model
-        "messages": [
-            {"role": "system", "content": "Will be given details of pandas dataframe named as df, write 3 python code to create charts using seaborn to visualize the data and save it as png with different names.Only share the python codes"},
-            {"role": "user", "content": json.dumps(message)}
-
-                    ]
-    }
-
-    response = requests.post("https://aiproxy.sanand.workers.dev/openai/v1/chat/completions", headers=headers, json=data)
-
-    if response.status_code == 200:
-        response_json = response.json()
-        code = response_json['choices'][0]['message']['content'] # Print the date
-        # print(code)
-        print("Python codes to generate chart has been received from OPENAI..")
-
-    else:
-        print(f"Error: {response.status_code}")
-
-    #call the function to create charts from code
-    func_output = generate_image_from_text_input(folder,code,df)
-
-    ##if there is failure in image generation then call the openai again
-    iteration = 0
-    # stop at 2nd iteration
-    for i in range(2):
-      if func_output != 'success':
-        print(f'iteration {iteration}')
-        iteration+=1
-          
-        ## 1st prompt asking about python codes for chart
-        data = {
-            "model": "gpt-4o-mini",  # or another suitable model
-            "messages": [
-                {"role": "system", "content": "Will be given details of pandas dataframe named as df, write 3 python code (If any column is having date value convert to pandas Datetime format) to create charts using seaborn to visualize the data and save it as png with different names.Only share the python codes"},
-                {"role": "user", "content": json.dumps(message)},
-                {"role": "user", "content": f"fix the below error and provide new code to generate 3 charts error: {func_output}"}
-                        ]
+        return {
+            'main_viz': main_viz_path,
+            'pairplot': pairplot_path
         }
 
-        response = requests.post("https://aiproxy.sanand.workers.dev/openai/v1/chat/completions", headers=headers, json=data)
+    def generate_markdown_tables(self) -> Dict[str, str]:
+        """
+        Generate markdown tables for different analyses
 
-        if response.status_code == 200:
-            response_json = response.json()
-            code = response_json['choices'][0]['message']['content'] # Print the date
-            print(code)
-            print("Python codes to generate chart has been received from OPENAI..")
-            func_output = generate_image_from_text_input(folder,code,df)
+        Returns:
+            Dict: Markdown formatted tables
+        """
+        tables = {}
 
-        else:
-            print(f"Error: {response.status_code}")
-        
-    ##function calling start
+        # 1. Descriptive Statistics Table
+        desc_stats = self.df.describe()
+        desc_table = "| Statistic | " + " | ".join(desc_stats.columns) + " |\n"
+        desc_table += "|" + "|".join(["---"] * (len(desc_stats.columns) + 1)) + "|\n"
+        for index, row in desc_stats.iterrows():
+            desc_table += f"| {index} | " + " | ".join([f"{val:.2f}" for val in row]) + " |\n"
+        tables['descriptive_stats'] = desc_table
 
-    
+        # 2. Feature Importance Table
+        feature_imp = self.feature_importance()
+        if feature_imp:
+            imp_table = "| Feature | Importance |\n|---|---|\n"
+            for feature, importance in sorted(feature_imp.items(), key=lambda x: x[1], reverse=True):
+                imp_table += f"| {feature} | {importance:.4f} |\n"
+            tables['feature_importance'] = imp_table
 
-    data = {
-        "model": "gpt-4o-mini",  # or another suitable model
-        "messages": [
-            {"role": "system", "content": "You will be given details of pandas dataframe named as df, If the user asks for help with pairplot, use the provided tools"},
-            {"role": "user", "content": json.dumps(message)},
-            {"role": "user", "content": "help me with seaborn pairplot"}
-        ],
-        "tools": tools
-    }
+        # 3. Correlation Table
+        corr_matrix = self.correlation_analysis()
+        corr_table = "| Feature | " + " | ".join(corr_matrix.columns) + " |\n"
+        corr_table += "|" + "|".join(["---"] * (len(corr_matrix.columns) + 1)) + "|\n"
+        for index, row in corr_matrix.iterrows():
+            corr_table += f"| {index} | " + " | ".join([f"{val:.2f}" for val in row]) + " |\n"
+        tables['correlation'] = corr_table
 
-    print("before function calling")
-    response = requests.post("https://aiproxy.sanand.workers.dev/openai/v1/chat/completions", headers=headers, json=data)
+        return tables
 
-    print("after function calling")
+    def generate_narrative(self, tables: Dict[str, str], viz_paths: Dict[str, str]) -> str:
+        """
+        Generate a narrative markdown report
 
-    if response.status_code == 200:
-        response_json = response.json()
-        # print(response_json)
-        if response_json.get("choices",[{}])[0].get("finish_reason",'') == 'tool_calls':
-          tool_call = response_json['choices'][0]['message']['tool_calls'][0]
-          function_name = tool_call['function']['name']
-          function_args = json.loads(tool_call['function']['arguments'])
-          if function_name == "get_categorical_numerical_column_name":
-            get_categorical_numerical_column_name(function_args.get("categorical_column"),folder,df, function_args.get("numerical_column"))
-        else:
-          code = response_json['choices'][0]['message']['content']
+        Args:
+            tables (Dict[str, str]): Markdown tables to include in the narrative
+            viz_paths (Dict[str, str]): Paths to visualization files
 
+        Returns:
+            str: Markdown formatted narrative
+        """
+        # Prepare context for LLM
+        context = f"""
+        Dataset Information:
+        - Total Rows: {len(self.df)}
+        - Total Columns: {len(self.df.columns)}
+        - Column Types: {dict(self.df.dtypes)}
+
+        Missing Values:
+        {self.df.isnull().sum()}
+
+        Descriptive Statistics:
+        {tables.get('descriptive_stats', 'No descriptive stats available')}
+
+        Feature Importance:
+        {tables.get('feature_importance', 'No feature importance available')}
+        """
+
+        # Call LLM to generate narrative
+        messages = [
+            {"role": "system",
+             "content": "You are a data storyteller. Help create an engaging narrative about a dataset."},
+            {"role": "user",
+             "content": f"Create a compelling markdown story about this dataset. Include sections on data description, key insights, and potential implications. Context:\n{context}"}
+        ]
+
+        narrative = self._call_llm(messages, max_tokens=1500)
+
+        # Append visualizations
+        narrative += "\n\n## Visualizations\n\n"
+
+        # Add main visualization
+        if viz_paths.get('main_viz'):
+            narrative += f"### Analysis Visualizations\n"
+            narrative += f"![Analysis Visualizations](analysis_visualizations.png)\n\n"
+
+        # Add pairplot
+        if viz_paths.get('pairplot'):
+            narrative += f"### Pairwise Distribution\n"
+            narrative += f"![Pairwise Distribution](distribution_pairplot.png)\n\n"
+
+        # Append tables to the narrative
+        narrative += "\n## Descriptive Statistics\n\n"
+        narrative += tables.get('descriptive_stats', 'No descriptive stats available')
+
+        narrative += "\n## Feature Importance\n\n"
+        narrative += tables.get('feature_importance', 'No feature importance available')
+
+        narrative += "\n## Correlation Matrix\n\n"
+        narrative += tables.get('correlation', 'No correlation data available')
+
+        return narrative
+
+    def run_analysis(self):
+        """
+        Run complete analysis workflow
+        """
+        # Perform analyses
+        summary = self.data_summary()
+        feature_imp = self.feature_importance()
+        correlation = self.correlation_analysis()
+        clusters = self.cluster_analysis()
+
+        # Create visualizations
+        viz_paths = self.create_visualizations()
+
+        # Generate markdown tables
+        tables = self.generate_markdown_tables()
+
+        # Generate narrative
+        narrative = self.generate_narrative(tables, viz_paths)
+
+        # Save narrative to README.md in the output directory
+        readme_path = os.path.join('README.md')
+        with open(readme_path, 'w') as f:
+            f.write(narrative)
+
+        return {
+            "summary": summary,
+            "feature_importance": feature_imp,
+            "correlation": correlation,
+            "clusters": clusters
+        }
+
+
+def main():
+    # Check if CSV file is provided
+    if len(sys.argv) < 2:
+        print("Usage: python autolysis.py <csv_file>")
+        sys.exit(1)
+
+    # Get CSV path and AI Proxy token
+    csv_path = sys.argv[1]
+    aiproxy_token = os.environ.get("AIPROXY_TOKEN")
+
+    if not aiproxy_token:
+        print("AIPROXY_TOKEN environment variable not set")
+        sys.exit(1)
+    # Run analysis
+    if len(sys.argv) > 2:
+        csv_files = glob.glob("*.csv")
+        for csv_path in csv_files:
+            print("Loaded CSV file:", csv_path)
+            analyzer = AutomatedAnalysis(csv_path, aiproxy_token)
+            analyzer.run_analysis()
     else:
-        print(f"Error: {response.status_code}")
+        analyzer = AutomatedAnalysis(csv_path, aiproxy_token)
+        analyzer.run_analysis()
 
-
-
-        
-
-
-    ## convert the image to base64 for open api input
-    file_list = glob.glob(f"{folder}/*.png")
-    image_list = []
-    for image in file_list:
-      print(f"encoding image {image}")
-      with open(image, 'rb') as image_file:
-        encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
-        image_list.append(encoded_image)
-
-    print(f"encoding of image is completed ..")
-
-    ## store the description of image in a list for future openai input
-    image_description = []
-    for image in file_list:
-
-      data = {
-          "model": "gpt-4o-mini",  # or another suitable model
-          "messages": [
-              {"role": "system", "content": f"You will be given an chart from {filename} dataset, get insights from this {image.split('/')[-1]} image"},
-              {"role": "user", "content": [
-                  {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_list[0]}",
-                                                      "detail": "low"
-                                                      },
-
-                  }
-              ]}
-          ]
-      }
-
-      response = requests.post("https://aiproxy.sanand.workers.dev/openai/v1/chat/completions", headers=headers, json=data)
-
-      if response.status_code == 200:
-          response_json = response.json()
-          image_description.append("chart name is {image} and chart decription is {response_json['choices'][0]['message']['content']}")
-          print("Insights from the genrated charts done successfully...")
-      else:
-          print(f"Error: {response.status_code}")
-
-    ## pass all the previous input to model to get final output
-    # print(f"file_list{file_list}")
-    image1 =  file_list[0].split('/')[-1]
-    image2 =  file_list[1].split('/')[-1]
-    image3 =  file_list[2].split('/')[-1]
-
- 
-
-    data = {
-      "model": "gpt-4o-mini",  # or another suitable model
-      "messages": [
-          {"role": "system", "content": f"You will be given details {filename} , You will also be given description of 3 charts from this data.Now describe 1.The data you received, briefly 2.The analysis you carried out 3.The insights you discovered 4. The implications of your findings (i.e. what to do with the insights)"},
-          {"role": "user", "content": json.dumps(message)},
-          {"role": "user", "content": json.dumps(image_description)},
-          # {"role": "user", "content": f"chart name is {image2} and chart description is{image_description[1]}"},
-          # {"role": "user", "content": f"chart name is {image3} and chart description is{image_description[2]}"}
-                  ]
-  }
-
-    response = requests.post("https://aiproxy.sanand.workers.dev/openai/v1/chat/completions", headers=headers, json=data)
-
-    if response.status_code == 200:
-        response_json = response.json()
-        # print(response_json['choices'][0]['message']['content']) # Print the date
-        output = response_json['choices'][0]['message']['content'] # Print the date
-        print("Final content of anaylysis has been generated successfully..")
-    else:
-        print(f"Error: {response.status_code}")
-    
-    ## store the text in the README.md file
-
-    with open(f"{folder}/README.md", 'w') as file:
-      file.write(output)
-      print("Program run completed successfully")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    print(f"Analysis complete. Results saved to {analyzer.output_dir}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        filename = sys.argv[1]  # Get the file name from the command-line argument
-        main(filename,token)
-    else:
-      print("Please provide a CSV filename as an argument.")
+    main()
