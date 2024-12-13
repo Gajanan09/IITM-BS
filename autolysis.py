@@ -189,72 +189,72 @@ class AutomatedAnalysis:
         }
 
     def create_visualizations(self):
-    """
-    Create multiple comprehensive visualizations based on the analysis
-    """
-    # Ensure the output directory exists
-    os.makedirs('visualizations', exist_ok=True)
+        """
+        Create multiple comprehensive visualizations based on the analysis
+        """
+        # 1. Main Analysis Visualization
+        plt.figure(figsize=(20, 15))
+        plt.subplots_adjust(hspace=0.5, wspace=0.3)
 
-    # 1. Main Analysis Visualization
-    plt.figure(figsize=(20, 15))
-    plt.subplots_adjust(hspace=0.5, wspace=0.3)
+        # Correlation Heatmap
+        plt.subplot(2, 2, 1)
+        corr_matrix = self.correlation_analysis()
+        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0,
+                    square=True, linewidths=0.5, cbar_kws={"shrink": .8})
+        plt.title('Correlation Heatmap', fontsize=10)
+        plt.tight_layout()
 
-    # Correlation Heatmap
-    plt.subplot(2, 2, 1)
-    corr_matrix = self.correlation_analysis()
-    sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0,
-                square=True, linewidths=0.5, cbar_kws={"shrink": .8})
-    plt.title('Correlation Heatmap', fontsize=10)
+        # Feature Importance Bar Plot
+        plt.subplot(2, 2, 2)
+        feature_imp = self.feature_importance()
+        if feature_imp:
+            plt.bar(feature_imp.keys(), feature_imp.values())
+            plt.title('Feature Importance', fontsize=10)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
 
-    # Feature Importance Bar Plot
-    plt.subplot(2, 2, 2)
-    feature_imp = self.feature_importance()
-    if feature_imp:
-        plt.bar(feature_imp.keys(), feature_imp.values())
-        plt.title('Feature Importance', fontsize=10)
-        plt.xticks(rotation=45, ha='right')
+        # Distribution Boxplot
+        plt.subplot(2, 2, 3)
+        numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
+        if len(numeric_cols) > 0:
+            sns.boxplot(data=self.df[numeric_cols])
+            plt.title('Distribution of Numeric Features', fontsize=10)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
 
-    # Distribution Boxplot
-    plt.subplot(2, 2, 3)
-    numeric_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
-    if len(numeric_cols) > 0:
-        sns.boxplot(data=self.df[numeric_cols])
-        plt.title('Distribution of Numeric Features', fontsize=10)
-        plt.xticks(rotation=45, ha='right')
+        # PCA Variance Explained
+        plt.subplot(2, 2, 4)
+        if len(numeric_cols) > 1:
+            pca = PCA()
+            scaler = Pipeline([
+                ('imp', SimpleImputer(missing_values=np.nan, strategy='mean')),
+                ('scaler', StandardScaler()),
+            ])
+            pca.fit(scaler.fit_transform(self.df[numeric_cols]))
+            plt.plot(np.cumsum(pca.explained_variance_ratio_))
+            plt.title('PCA Variance Explained', fontsize=10)
+            plt.xlabel('Number of Components')
+            plt.ylabel('Cumulative Explained Variance')
 
-    # PCA Variance Explained
-    plt.subplot(2, 2, 4)
-    if len(numeric_cols) > 1:
-        pca = PCA()
-        scaler = Pipeline([
-            ('imp', SimpleImputer(missing_values=np.nan, strategy='mean')),
-            ('scaler', StandardScaler()),
-        ])
-        pca.fit(scaler.fit_transform(self.df[numeric_cols]))
-        plt.plot(np.cumsum(pca.explained_variance_ratio_))
-        plt.title('PCA Variance Explained', fontsize=10)
-        plt.xlabel('Number of Components')
-        plt.ylabel('Cumulative Explained Variance')
+        # Save main visualizations
+        main_viz_path = os.path.join('analysis_visualizations.png')
+        plt.savefig(main_viz_path, dpi=300, bbox_inches='tight')
+        plt.close()
 
-    # Save main visualizations
-    main_viz_path = os.path.join('visualizations', 'analysis_visualizations.png')
-    plt.savefig(main_viz_path, dpi=300, bbox_inches='tight')
-    plt.close()
+        # 2. Distribution Pairplot
+        plt.figure(figsize=(15, 10))
+        sns.pairplot(self.df[numeric_cols], diag_kind='kde')
+        plt.suptitle('Pairwise Distribution and Relationships', y=1.02)
 
-    # 2. Distribution Pairplot
-    plt.figure(figsize=(15, 10))
-    sns.pairplot(self.df[numeric_cols], diag_kind='kde')
-    plt.suptitle('Pairwise Distribution and Relationships', y=1.02)
+        # Save pairplot
+        pairplot_path = os.path.join('distribution_pairplot.png')
+        plt.savefig(pairplot_path, dpi=300, bbox_inches='tight')
+        plt.close()
 
-    # Save pairplot
-    pairplot_path = os.path.join('visualizations', 'distribution_pairplot.png')
-    plt.savefig(pairplot_path, dpi=300, bbox_inches='tight')
-    plt.close()
-
-    return {
-        'main_viz': main_viz_path,
-        'pairplot': pairplot_path
-    }
+        return {
+            'main_viz': main_viz_path,
+            'pairplot': pairplot_path
+        }
 
     def generate_markdown_tables(self) -> Dict[str, str]:
         """
