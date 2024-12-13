@@ -413,5 +413,5 @@ def main():
     print(f"Analysis complete. Results saved to {analyzer.output_dir}")
 
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
