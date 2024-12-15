@@ -212,24 +212,4 @@ async def main(file_path):
 
     # Create output directory
     output_dir = Path(file_path.stem)  # Create a directory named after the dataset
-    output_dir.mkdir(exist_ok=True)
-
-    # Generate visualizations with LLM suggestions
-    print("Generating visualizations...")
-    await visualize_data(df, output_dir)
-
-    # Generate narrative
-    print("Generating narrative using LLM...")
-    narrative = await generate_narrative(analysis, token, file_path)
-
-    if narrative != "Narrative generation failed due to an error.":
-        await save_narrative_with_images(narrative, output_dir)
-    else:
-        print("Narrative generation failed.")
-
-# Execute script
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python script.py <file_path>")
-        sys.exit(1)
-    asyncio.run(main(sys.argv[1]))
+    output_dir.mkdir(exist_ok
