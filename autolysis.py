@@ -23,6 +23,7 @@ import chardet
 from pathlib import Path
 import asyncio
 import scipy.stats as stats
+import numpy as np
 
 # Ensure UTF-8 output for compatibility
 if sys.stdout.encoding != 'utf-8':
@@ -78,9 +79,11 @@ async def generate_narrative(analysis, token, file_path):
         f"Missing Values: {analysis['missing_values']}\n"
         f"Correlation Matrix: {analysis['correlation']}\n"
         f"Numeric Trends: {analysis['numeric_trends']}\n"
+        f"Skewness and Kurtosis: {analysis['skewness_kurtosis']}\n"
+        f"Outliers: {analysis['outliers']}\n"
         f"Hypothesis Test Results (if available): {analysis.get('hypothesis_test', 'None')}\n\n"
         "Provide a detailed narrative with explicit statistical insights, "
-        "explaining correlations, trends, or anomalies. Suggest further analyses if necessary."
+        "explaining correlations, trends, anomalies, and outliers. Suggest further analyses if necessary."
     )
 
     data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]}
@@ -115,6 +118,26 @@ async def analyze_data(df, token):
         for column in numeric_df.columns
     }
 
+    # Calculate skewness and kurtosis
+    skewness_kurtosis = {
+        column: {
+            "skewness": stats.skew(df[column].dropna()),
+            "kurtosis": stats.kurtosis(df[column].dropna())
+        }
+        for column in numeric_df.columns
+    }
+
+    # Outlier detection
+    outliers = {
+        column: {
+            "outliers": list(df[column][
+                (df[column] > df[column].mean() + 3 * df[column].std()) |
+                (df[column] < df[column].mean() - 3 * df[column].std())
+            ])
+        }
+        for column in numeric_df.columns
+    }
+
     # Hypothesis testing example
     hypothesis_test = {}
     if 'average_rating' in df.columns and 'num_pages' in df.columns:
@@ -126,6 +149,8 @@ async def analyze_data(df, token):
         'missing_values': missing_values,
         'correlation': correlation,
         'numeric_trends': numeric_trends,
+        'skewness_kurtosis': skewness_kurtosis,
+        'outliers': outliers,
         'hypothesis_test': hypothesis_test
     }
 
@@ -136,7 +161,9 @@ async def analyze_data(df, token):
             f"Summary Statistics: {summary_stats}\n"
             f"Missing Values: {missing_values}\n"
             f"Correlation Matrix: {correlation}\n"
-            f"Numeric Trends: {numeric_trends}\n\n"
+            f"Numeric Trends: {numeric_trends}\n"
+            f"Skewness and Kurtosis: {skewness_kurtosis}\n"
+            f"Outliers: {outliers}\n\n"
             "Based on these results, provide detailed insights into the dataset, "
             "highlight patterns, outliers, and possible future steps such as predictive modeling or clustering."
         )
@@ -163,21 +190,27 @@ async def visualize_data(df, output_dir):
 
     # Generate visualizations (distribution plots and heatmap)
     for column in selected_columns:
-        plt.figure(figsize=(6, 6))
-        sns.histplot(df[column].dropna(), kde=True, color='skyblue')
-        plt.title(f'Distribution of {column}')
-        plt.xlabel(column)
-        plt.ylabel('Frequency')
+        plt.figure(figsize=(8, 6))  # Adjusted figure size for better readability
+        sns.histplot(df[column].dropna(), kde=True, color='cornflowerblue')  # Updated color
+        plt.title(f'Distribution of {column}', fontsize=14)  # Clearer title
+        plt.xlabel(column, fontsize=12)  # Added label with increased font size
+        plt.ylabel('Frequency', fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.7)  # Improved gridlines for clarity
         file_name = output_dir / f'{column}_distribution.png'
         plt.savefig(file_name, dpi=100)
         print(f"Saved distribution plot: {file_name}")
         plt.close()
 
     if len(numeric_columns) > 1:
-        plt.figure(figsize=(8, 8))
+        plt.figure(figsize=(10, 8))  # Larger heatmap size
         corr = df[numeric_columns].corr()
-        sns.heatmap(corr, annot=True, cmap='coolwarm', square=True)
-        plt.title('Correlation Heatmap')
+        sns.heatmap(
+            corr, annot=True, cmap='viridis', square=True,  # Updated color palette
+            cbar_kws={"shrink": 0.8}, annot_kws={"fontsize": 10}
+        )
+        plt.title('Correlation Heatmap', fontsize=16)  # Clearer title
+        plt.xticks(fontsize=12, rotation=45)  # Adjusted font size and rotation for clarity
+        plt.yticks(fontsize=12)
         file_name = output_dir / 'correlation_heatmap.png'
         plt.savefig(file_name, dpi=100)
         print(f"Saved correlation heatmap: {file_name}")
