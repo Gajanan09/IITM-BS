@@ -46,7 +46,7 @@ async def load_data(file_path):
         result = chardet.detect(f.read())
     encoding = result['encoding']
     print(f"Detected file encoding: {encoding}")
-    return pd.read_csv(file_path, encoding=encoding or 'utf-8')
+    return pd.read_csv(file_path, encoding=encoding or 'utf-8', nrows=1000)
 
 async def async_post_request(headers, data):
     """Async function to make HTTP requests."""
@@ -71,15 +71,13 @@ async def generate_narrative(analysis, token, file_path):
     }
 
     prompt = (
-        f"You are a data analyst. Provide a detailed narrative based on the following data analysis results for the file '{file_path.name}':\n\n"
-        f"Column Names & Types: {list(analysis['summary'].keys())}\n\n"
-        f"Summary Statistics: {analysis['summary']}\n\n"
-        f"Missing Values: {analysis['missing_values']}\n\n"
-        f"Correlation Matrix: {analysis['correlation']}\n\n"
-        "Please provide insights into trends, outliers, anomalies, or patterns. "
-        "Suggest further analyses like clustering or anomaly detection. "
-        "Discuss how these trends may impact future decisions."
-    )
+    f"You are a data analyst. Provide a detailed narrative based on the following key data analysis results for the file '{file_path.name}':\n\n"
+    f"Column Names & Types: {list(analysis['summary'].keys())}\n\n"
+    f"Summary Statistics (Key Insights): {dict(analysis['summary']).get('mean', 'N/A')}\n\n"
+    f"Missing Values: {dict(analysis['missing_values'])}\n\n"
+    f"Correlation: {dict(analysis['correlation'])}\n\n"
+    "Provide insights into trends, outliers, or patterns, and suggest possible further analyses."
+)
 
     data = {
         "model": "gpt-4o-mini",
