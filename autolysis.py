@@ -151,6 +151,8 @@ async def visualize_data(df, output_dir):
         plt.figure(figsize=(6, 6))
         sns.histplot(df[column].dropna(), kde=True, color='skyblue')
         plt.title(f'Distribution of {column}')
+        plt.xlabel(column)
+        plt.ylabel('Frequency')
         file_name = output_dir / f'{column}_distribution.png'
         plt.savefig(file_name, dpi=100)
         print(f"Saved distribution plot: {file_name}")
@@ -211,5 +213,26 @@ async def main(file_path):
     print(f"LLM Analysis Suggestions: {suggestions}")
 
     # Create output directory
-    output_dir = Path(file_path.stem)  # Create a directory named after the dataset
-    output_dir.mkdir(exist_ok
+    output_dir = Path(file_path.stem)
+    output_dir.mkdir(exist_ok=True)
+
+    # Generate visualizations with LLM suggestions
+    print("Generating visualizations...")
+    await visualize_data(df, output_dir)
+
+    # Generate narrative
+    print("Generating narrative using LLM...")
+    narrative = await generate_narrative(analysis, token, file_path)
+
+    if narrative != "Narrative generation failed due to an error.":
+        await save_narrative_with_images(narrative, output_dir)
+    else:
+        print("Narrative generation failed.")
+
+# Execute script
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python script.py <file_path>")
+        sys.exit(1)
+    asyncio.run(main(sys.argv[1]))
+
