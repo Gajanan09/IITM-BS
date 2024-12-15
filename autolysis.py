@@ -23,6 +23,7 @@ import chardet
 from pathlib import Path
 import asyncio
 import scipy.stats as stats
+from PIL import Image
 import numpy as np
 
 # Ensure UTF-8 output for compatibility
@@ -92,7 +93,36 @@ async def generate_narrative(analysis, token, file_path):
     except Exception as e:
         print(f"Error during narrative generation: {e}")
         return "Narrative generation failed due to an error."
-        
+
+async def generate_refined_narrative(analysis, token, file_path):
+    """Generate a refined narrative through multiple iterations with the LLM."""
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    refined_narrative = ""
+
+    # First query for general insights
+    prompt1 = (
+        f"Analyze the following data from file '{file_path.name}' and summarize it:\n"
+        f"Summary Statistics: {analysis['summary']}\n"
+        f"Missing Values: {analysis['missing_values']}\n"
+        f"Correlation Matrix: {analysis['correlation']}\n\n"
+        "Provide general trends and areas needing further analysis."
+    )
+    data1 = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt1}]}
+    response1 = await async_post_request(headers, data1)
+    refined_narrative += response1
+
+    # Second query for specific insights on correlations
+    prompt2 = (
+        f"Based on the correlation matrix and numeric trends:\n"
+        f"Correlation Matrix: {analysis['correlation']}\n"
+        "Identify key variables with significant correlations and suggest possible causal relationships."
+    )
+    data2 = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt2}]}
+    response2 = await async_post_request(headers, data2)
+    refined_narrative += "\n\n" + response2
+
+    return refined_narrative
+
 
 async def analyze_data(df, token):
     """Perform detailed data analysis and request insights from LLM."""
@@ -216,6 +246,25 @@ async def visualize_data(df, output_dir):
         print(f"Saved correlation heatmap: {file_name}")
         plt.close()
 
+async def analyze_images(output_dir):
+    """Analyze generated images for quality or content using vision techniques."""
+    insights = {}
+    for img_path in output_dir.glob("*.png"):
+        try:
+            with Image.open(img_path) as img:
+                img_array = np.array(img)
+                # Example analysis: Check brightness
+                brightness = np.mean(img_array)
+                insights[img_path.name] = {
+                    "brightness": brightness,
+                    "size": img.size,
+                    "mode": img.mode
+                }
+        except Exception as e:
+            print(f"Error analyzing image {img_path.name}: {e}")
+    print(f"Image analysis insights: {insights}")
+    return insights
+
 async def save_narrative_with_images(narrative, output_dir):
     """Save narrative to README.md and embed image links."""
     readme_path = output_dir / 'README.md'
@@ -263,8 +312,14 @@ async def main(file_path):
     print("Generating visualizations...")
     await visualize_data(df, output_dir)
 
-    print("Generating narrative using LLM...")
-    narrative = await generate_narrative(analysis, token, file_path)
+    print("Analyzing generated images...")
+    image_insights = await analyze_images(output_dir)
+    print(f"Image Insights: {image_insights}")
+
+
+    print("Generating refined narrative using iterative LLM calls...")
+    narrative = await generate_refined_narrative(analysis, token, file_path)
+
 
     if narrative != "Narrative generation failed due to an error.":
         await save_narrative_with_images(narrative, output_dir)
