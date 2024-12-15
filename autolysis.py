@@ -15,6 +15,7 @@
 
 import os
 import sys
+from wsgiref import headers
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -336,6 +337,7 @@ async def agentic_workflow_for_visualizations_and_analysis(df, output_dir, token
         )
     
     # Step 4: Generate further insights using another agent (optional)
+    headers= {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     additional_analysis_prompt = (
         f"Given the following report, generate further insights about the data:\n\n"
         f"Report: {comprehensive_report}\n\n"
