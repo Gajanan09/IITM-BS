@@ -206,9 +206,8 @@ async def analyze_data(df, token):
     print("Data analysis complete.")
     return analysis, suggestions
     
-
 async def visualize_data(df, output_dir):
-    """Generate and save visualizations."""
+    """Generate and save visualizations with detailed commentary on their relevance."""
     sns.set(style="whitegrid")
     numeric_columns = df.select_dtypes(include=['number']).columns
 
@@ -218,7 +217,9 @@ async def visualize_data(df, output_dir):
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate visualizations (distribution plots and heatmap)
+    # Generate and save visualizations with commentary
+    visualization_comments = []
+
     for column in selected_columns:
         plt.figure(figsize=(8, 6))  # Adjusted figure size for better readability
         sns.histplot(df[column].dropna(), kde=True, color='cornflowerblue')  # Updated color
@@ -228,8 +229,18 @@ async def visualize_data(df, output_dir):
         plt.grid(True, linestyle='--', alpha=0.7)  # Improved gridlines for clarity
         file_name = output_dir / f'{column}_distribution.png'
         plt.savefig(file_name, dpi=100)
-        print(f"Saved distribution plot: {file_name}")
         plt.close()
+
+        # Add commentary on the visualization's relevance
+        comment = (
+            f"The distribution plot of '{column}' is useful for understanding the "
+            "spread and skewness of the data. The inclusion of a kernel density estimate (KDE) "
+            "provides a smoother representation of the data distribution, highlighting key trends like "
+            "central tendency and potential outliers. This visualization helps in detecting patterns such "
+            "as bimodal distributions, skewness, and unusual peaks in the data."
+        )
+        visualization_comments.append(comment)
+        print(f"Saved distribution plot: {file_name}")
 
     if len(numeric_columns) > 1:
         plt.figure(figsize=(10, 8))  # Larger heatmap size
@@ -243,8 +254,21 @@ async def visualize_data(df, output_dir):
         plt.yticks(fontsize=12)
         file_name = output_dir / 'correlation_heatmap.png'
         plt.savefig(file_name, dpi=100)
-        print(f"Saved correlation heatmap: {file_name}")
         plt.close()
+
+        # Add commentary on the correlation heatmap
+        comment = (
+            "The correlation heatmap provides an overview of the relationships between numeric variables. "
+            "It helps in identifying strong correlations and potential multicollinearity issues. "
+            "By visualizing this matrix, key pairs of variables with high correlations can be spotted, "
+            "which may reveal underlying patterns or redundancies in the data."
+        )
+        visualization_comments.append(comment)
+        print(f"Saved correlation heatmap: {file_name}")
+
+    # Return visualizations and their associated comments
+    return visualization_comments
+
 
 async def analyze_images(output_dir):
     """Analyze generated images for quality or content using vision techniques."""
