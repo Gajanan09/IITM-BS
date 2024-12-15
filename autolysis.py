@@ -63,7 +63,7 @@ async def async_post_request(headers, data):
             print(f"Error during request: {e}")
             raise
 
-async def generate_narrative(analysis, token, file_path, visualizations):
+async def generate_narrative(analysis, token, file_path):
     """Generate narrative using LLM."""
     headers = {
         'Authorization': f'Bearer {token}',
@@ -71,13 +71,14 @@ async def generate_narrative(analysis, token, file_path, visualizations):
     }
 
     prompt = (
-        f"You are a data analyst. Provide a detailed narrative based on the following analysis for the file '{file_path.name}':\n\n"
+        f"You are a data analyst. Provide a detailed narrative based on the following data analysis results for the file '{file_path.name}':\n\n"
         f"Column Names & Types: {list(analysis['summary'].keys())}\n\n"
         f"Summary Statistics: {analysis['summary']}\n\n"
         f"Missing Values: {analysis['missing_values']}\n\n"
         f"Correlation Matrix: {analysis['correlation']}\n\n"
-        "Please discuss how the trends, anomalies, or patterns in the data relate to the visualizations generated. "
-        "Include interpretations from distribution plots and correlation heatmaps."
+        "Please provide insights into trends, outliers, anomalies, or patterns. "
+        "Suggest further analyses like clustering or anomaly detection. "
+        "Discuss how these trends may impact future decisions."
     )
 
     data = {
@@ -85,26 +86,21 @@ async def generate_narrative(analysis, token, file_path, visualizations):
         "messages": [{"role": "user", "content": prompt}]
     }
 
-    try:
-        narrative = await async_post_request(headers, data)
-        if not narrative:
-            return "Narrative generation failed due to an error."
-        return narrative
-    except Exception as e:
-        print(f"Error during narrative generation: {e}")
-        return "Narrative generation failed due to an error."
+    return await async_post_request(headers, data)
 
 async def analyze_data(df, token):
     """Use LLM to suggest and perform data analysis."""
     if df.empty:
         raise ValueError("Error: Dataset is empty.")
 
-    # Minimalist approach for efficient prompt
+    # Enhanced prompt for better LLM analysis suggestions
     prompt = (
-        f"You are a data analyst. Given the following dataset information, provide a short analysis plan:\n\n"
+        f"You are a data analyst. Given the following dataset information, provide an analysis plan and suggest useful techniques:\n\n"
         f"Columns: {list(df.columns)}\n"
+        f"Data Types: {df.dtypes.to_dict()}\n"
         f"First 5 rows of data:\n{df.head()}\n\n"
-        "Suggest the most relevant data analysis techniques (correlation, regression, etc.)."
+        "Suggest data analysis techniques, such as correlation, regression, anomaly detection, clustering, or others. "
+        "Consider missing values, categorical variables, and scalability."
     )
 
     headers = {
@@ -153,8 +149,6 @@ async def visualize_data(df, output_dir):
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    visualizations = []  # To collect visualization info
-
     # Enhanced visualizations (distribution plots, heatmap)
     for column in selected_columns:
         plt.figure(figsize=(6, 6))
@@ -164,7 +158,6 @@ async def visualize_data(df, output_dir):
         plt.ylabel('Frequency')
         file_name = output_dir / f'{column}_distribution.png'
         plt.savefig(file_name, dpi=100)
-        visualizations.append(file_name)  # Add to visualizations list
         print(f"Saved distribution plot: {file_name}")
         plt.close()
 
@@ -175,12 +168,8 @@ async def visualize_data(df, output_dir):
         plt.title('Correlation Heatmap')
         file_name = output_dir / 'correlation_heatmap.png'
         plt.savefig(file_name, dpi=100)
-        visualizations.append(file_name)  # Add to visualizations list
         print(f"Saved correlation heatmap: {file_name}")
         plt.close()
-
-    return visualizations  # Return the list of visualizations
-
 
 async def save_narrative_with_images(narrative, output_dir):
     """Save narrative to README.md and embed image links."""
@@ -232,17 +221,16 @@ async def main(file_path):
 
     # Generate visualizations with LLM suggestions
     print("Generating visualizations...")
-    visualizations = await visualize_data(df, output_dir)  # Collect visualizations
+    await visualize_data(df, output_dir)
 
     # Generate narrative
     print("Generating narrative using LLM...")
-    narrative = await generate_narrative(analysis, token, file_path, visualizations)  # Pass visualizations
+    narrative = await generate_narrative(analysis, token, file_path)
 
     if narrative != "Narrative generation failed due to an error.":
         await save_narrative_with_images(narrative, output_dir)
     else:
         print("Narrative generation failed.")
-
 
 # Execute script
 if __name__ == "__main__":
