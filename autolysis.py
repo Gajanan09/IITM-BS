@@ -68,80 +68,87 @@ async def async_post_request(headers, data):
             raise
 
 async def generate_narrative(analysis, token, file_path):
-    """Generate a narrative using LLM based on data analysis."""
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
+    """Generate a detailed narrative based on analysis results."""
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
     prompt = (
-        f"You are a data analyst. Provide a detailed narrative based on the following data analysis results for the file '{file_path.name}':\n\n"
-        f"Column Names & Types: {list(analysis['summary'].keys())}\n\n"
-        f"Summary Statistics: {analysis['summary']}\n\n"
-        f"Missing Values: {analysis['missing_values']}\n\n"
-        f"Correlation Matrix: {analysis['correlation']}\n\n"
-        "Please provide insights into trends, outliers, anomalies, or patterns. "
-        "Suggest further analyses like clustering or anomaly detection. "
-        "Discuss how these trends may impact future decisions."
+        f"You are an experienced data analyst. Analyze the following data for the file '{file_path.name}':\n\n"
+        f"Column Names: {list(analysis['summary'].keys())}\n"
+        f"Summary Statistics: {analysis['summary']}\n"
+        f"Missing Values: {analysis['missing_values']}\n"
+        f"Correlation Matrix: {analysis['correlation']}\n"
+        f"Numeric Trends: {analysis['numeric_trends']}\n"
+        f"Hypothesis Test Results (if available): {analysis.get('hypothesis_test', 'None')}\n\n"
+        "Provide a detailed narrative with explicit statistical insights, "
+        "explaining correlations, trends, or anomalies. Suggest further analyses if necessary."
     )
 
-    data = {
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}]
-    }
-
-    return await async_post_request(headers, data)
+    data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]}
+    try:
+        return await async_post_request(headers, data)
+    except Exception as e:
+        print(f"Error during narrative generation: {e}")
+        return "Narrative generation failed due to an error."
+        
 
 async def analyze_data(df, token):
-    """Perform data analysis and get insights from LLM."""
+    """Perform detailed data analysis and request insights from LLM."""
     if df.empty:
         raise ValueError("Error: Dataset is empty.")
 
-    # Initial analysis prompt
-    prompt = (
-        f"You are a data analyst. Given the following dataset information, provide an analysis plan and suggest useful techniques:\n\n"
-        f"Columns: {list(df.columns)}\n"
-        f"Data Types: {df.dtypes.to_dict()}\n"
-        f"First 5 rows of data:\n{df.head()}\n\n"
-        "Suggest data analysis techniques, such as correlation, regression, anomaly detection, clustering, or others. "
-        "Consider missing values, categorical variables, and scalability."
-    )
+    numeric_df = df.select_dtypes(include=['number'])
+    categorical_df = df.select_dtypes(include=['object', 'category'])
 
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
+    # Generate insights for numerical data
+    summary_stats = df.describe(include='all').to_dict()
+    missing_values = df.isnull().sum().to_dict()
+    correlation = numeric_df.corr().to_dict() if not numeric_df.empty else {}
+
+    # Extract specific trends for analysis
+    numeric_trends = {
+        column: {
+            "mean": df[column].mean(),
+            "std_dev": df[column].std(),
+            "max": df[column].max(),
+            "min": df[column].min()
+        }
+        for column in numeric_df.columns
     }
 
-    data = {
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}]
+    # Hypothesis testing example
+    hypothesis_test = {}
+    if 'average_rating' in df.columns and 'num_pages' in df.columns:
+        t_stat, p_value = stats.ttest_ind(df['average_rating'].dropna(), df['num_pages'].dropna())
+        hypothesis_test = {'t_stat': t_stat, 'p_value': p_value}
+
+    analysis = {
+        'summary': summary_stats,
+        'missing_values': missing_values,
+        'correlation': correlation,
+        'numeric_trends': numeric_trends,
+        'hypothesis_test': hypothesis_test
     }
 
+    # Request suggestions for further insights
     try:
+        prompt = (
+            f"Data analysis results for '{df.columns}':\n\n"
+            f"Summary Statistics: {summary_stats}\n"
+            f"Missing Values: {missing_values}\n"
+            f"Correlation Matrix: {correlation}\n"
+            f"Numeric Trends: {numeric_trends}\n\n"
+            "Based on these results, provide detailed insights into the dataset, "
+            "highlight patterns, outliers, and possible future steps such as predictive modeling or clustering."
+        )
+        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+        data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]}
         suggestions = await async_post_request(headers, data)
     except Exception as e:
         suggestions = f"Error fetching suggestions: {e}"
 
-    print(f"LLM Suggestions: {suggestions}")
-
-    # Basic analysis (summary statistics, missing values, correlations)
-    numeric_df = df.select_dtypes(include=['number'])
-    analysis = {
-        'summary': df.describe(include='all').to_dict(),
-        'missing_values': df.isnull().sum().to_dict(),
-        'correlation': numeric_df.corr().to_dict() if not numeric_df.empty else {}
-    }
-
-    # Hypothesis testing example (if 'A' and 'B' columns exist)
-    if 'A' in df.columns and 'B' in df.columns:
-        t_stat, p_value = stats.ttest_ind(df['A'].dropna(), df['B'].dropna())
-        analysis['hypothesis_test'] = {
-            't_stat': t_stat,
-            'p_value': p_value
-        }
-
     print("Data analysis complete.")
     return analysis, suggestions
+    
 
 async def visualize_data(df, output_dir):
     """Generate and save visualizations."""
