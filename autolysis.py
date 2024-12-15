@@ -176,30 +176,30 @@ async def visualize_data(df, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
 
  # Enhanced visualizations (distribution plots, heatmap)
-for column in selected_columns:
-    plt.figure(figsize=(6, 6))
-    sns.histplot(df[column].dropna(), kde=True, color='skyblue', label=column)
-    plt.title(f'Distribution of {column} (Key Insights)')
-    plt.xlabel(column)
-    plt.ylabel('Frequency')
-    plt.legend(title='Columns')
-    plt.annotate(f'Mean: {df[column].mean():.2f}', xy=(0.8, 0.9), xycoords='axes fraction', fontsize=12, color='red')
-    file_name = output_dir / f'{column}_distribution.png'
-    plt.savefig(file_name, dpi=100)
-    print(f"Saved distribution plot: {file_name}")
-    plt.close()
-
-# Adding legends and annotations to correlation heatmap
-if len(numeric_columns) > 1:
-    plt.figure(figsize=(8, 8))
-    corr = df[numeric_columns].corr()
-    sns.heatmap(corr, annot=True, cmap='coolwarm', square=True, cbar_kws={'label': 'Correlation Coefficient'})
-    plt.title('Correlation Heatmap (Insights from Analysis)')
-    plt.tight_layout()
-    file_name = output_dir / 'correlation_heatmap.png'
-    plt.savefig(file_name, dpi=100)
-    print(f"Saved correlation heatmap: {file_name}")
-    plt.close()
+    for column in selected_columns:
+        plt.figure(figsize=(6, 6))
+        sns.histplot(df[column].dropna(), kde=True, color='skyblue', label=column)
+        plt.title(f'Distribution of {column} (Key Insights)')
+        plt.xlabel(column)
+        plt.ylabel('Frequency')
+        plt.legend(title='Columns')
+        plt.annotate(f'Mean: {df[column].mean():.2f}', xy=(0.8, 0.9), xycoords='axes fraction', fontsize=12, color='red')
+        file_name = output_dir / f'{column}_distribution.png'
+        plt.savefig(file_name, dpi=100)
+        print(f"Saved distribution plot: {file_name}")
+        plt.close()
+    
+    # Adding legends and annotations to correlation heatmap
+    if len(numeric_columns) > 1:
+        plt.figure(figsize=(8, 8))
+        corr = df[numeric_columns].corr()
+        sns.heatmap(corr, annot=True, cmap='coolwarm', square=True, cbar_kws={'label': 'Correlation Coefficient'})
+        plt.title('Correlation Heatmap (Insights from Analysis)')
+        plt.tight_layout()
+        file_name = output_dir / 'correlation_heatmap.png'
+        plt.savefig(file_name, dpi=100)
+        print(f"Saved correlation heatmap: {file_name}")
+        plt.close()
 
 async def save_narrative_with_images(narrative, output_dir):
     """Save narrative to README.md and embed image links."""
