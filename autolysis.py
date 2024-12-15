@@ -23,6 +23,8 @@ import chardet
 from pathlib import Path
 import asyncio
 import scipy.stats as stats
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 # Constants
 API_URL = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
@@ -44,7 +46,7 @@ async def load_data(file_path):
         result = chardet.detect(f.read())
     encoding = result['encoding']
     print(f"Detected file encoding: {encoding}")
-    return pd.read_csv(file_path, encoding=encoding)
+    return pd.read_csv(file_path, encoding=encoding or 'utf-8')
 
 async def async_post_request(headers, data):
     """Async function to make HTTP requests."""
@@ -52,6 +54,7 @@ async def async_post_request(headers, data):
         try:
             response = await client.post(API_URL, headers=headers, json=data, timeout=30.0)
             response.raise_for_status()
+            response.encoding = 'utf-8'
             return response.json()['choices'][0]['message']['content']
         except httpx.HTTPStatusError as e:
             print(f"HTTP error occurred: {e}")
@@ -174,7 +177,7 @@ async def save_narrative_with_images(narrative, output_dir):
     image_links = "\n".join(
         [f"![{img.name}]({img.name})" for img in output_dir.glob('*.png')]
     )
-    with open(readme_path, 'w') as f:
+    with open(readme_path, 'w', encoding='utf-8') as f:
         f.write(narrative + "\n\n" + image_links)
     print(f"Narrative successfully written to {readme_path}")
 
