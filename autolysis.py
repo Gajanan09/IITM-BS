@@ -99,37 +99,13 @@ async def analyze_data(df, token):
     if df.empty:
         raise ValueError("Error: Dataset is empty.")
 
-    # Enhanced prompt for better LLM analysis suggestions
-    prompt = (
-        f"You are a data analyst. Given the following dataset information, provide an analysis plan and suggest useful techniques:\n\n"
-        f"Columns: {list(df.columns)}\n"
-        f"Data Types: {df.dtypes.to_dict()}\n"
-        f"First 5 rows of data:\n{df.head()}\n\n"
-        "Suggest data analysis techniques, such as correlation, regression, anomaly detection, clustering, or others. "
-        "Consider missing values, categorical variables, and scalability."
-    )
-
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
-    data = {
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}]
-    }
-
-    try:
-        suggestions = await async_post_request(headers, data)
-    except Exception as e:
-        suggestions = f"Error fetching suggestions: {e}"
-
-    print(f"LLM Suggestions: {suggestions}")
-
     # Basic analysis (summary statistics, missing values, correlations)
     numeric_df = df.select_dtypes(include=['number'])
     analysis = {
-        'summary': df.describe(include='all').to_dict('index'),
+        # Ensure summary statistics dictionary is correctly formatted
+        'summary': df.describe(include='all').to_dict('index'),  # Use 'index' to ensure each column is a key-value pair
         'missing_values': df.isnull().sum().to_dict(),
+        # Ensure correlation is correctly formatted
         'correlation': numeric_df.corr().to_dict() if not numeric_df.empty else {}
     }
 
@@ -141,30 +117,8 @@ async def analyze_data(df, token):
             'p_value': p_value
         }
 
-    # Regression Analysis if columns A and B exist
-    if 'A' in df.columns and 'B' in df.columns:
-        from sklearn.linear_model import LinearRegression
-        X = df[['A']].dropna()
-        y = df['B'].dropna()
-        reg = LinearRegression()
-        reg.fit(X, y)
-        analysis['regression'] = {
-            'coefficients': reg.coef_,
-            'intercept': reg.intercept_,
-            'r_squared': reg.score(X, y)
-        }
-
-# Chi-square test for categorical columns
-    if 'category' in df.columns and 'target_column' in df.columns:
-        contingency_table = pd.crosstab(df['category'], df['target_column'])
-        chi2, p, dof, expected = stats.chi2_contingency(contingency_table)
-        analysis['chi_square'] = {
-            'chi2': chi2,
-            'p_value': p
-        }
-
     print("Data analysis complete.")
-    return analysis, suggestions
+    return analysis
 
 async def visualize_data(df, output_dir):
     """Generate and save visualizations."""
