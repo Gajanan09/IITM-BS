@@ -153,6 +153,8 @@ async def visualize_data(df, output_dir):
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    visualizations = []  # To collect visualization info
+
     # Enhanced visualizations (distribution plots, heatmap)
     for column in selected_columns:
         plt.figure(figsize=(6, 6))
@@ -162,6 +164,7 @@ async def visualize_data(df, output_dir):
         plt.ylabel('Frequency')
         file_name = output_dir / f'{column}_distribution.png'
         plt.savefig(file_name, dpi=100)
+        visualizations.append(file_name)  # Add to visualizations list
         print(f"Saved distribution plot: {file_name}")
         plt.close()
 
@@ -172,8 +175,12 @@ async def visualize_data(df, output_dir):
         plt.title('Correlation Heatmap')
         file_name = output_dir / 'correlation_heatmap.png'
         plt.savefig(file_name, dpi=100)
+        visualizations.append(file_name)  # Add to visualizations list
         print(f"Saved correlation heatmap: {file_name}")
         plt.close()
+
+    return visualizations  # Return the list of visualizations
+
 
 async def save_narrative_with_images(narrative, output_dir):
     """Save narrative to README.md and embed image links."""
@@ -225,16 +232,17 @@ async def main(file_path):
 
     # Generate visualizations with LLM suggestions
     print("Generating visualizations...")
-    await visualize_data(df, output_dir)
+    visualizations = await visualize_data(df, output_dir)  # Collect visualizations
 
     # Generate narrative
     print("Generating narrative using LLM...")
-    narrative = await generate_narrative(analysis, token, file_path)
+    narrative = await generate_narrative(analysis, token, file_path, visualizations)  # Pass visualizations
 
     if narrative != "Narrative generation failed due to an error.":
         await save_narrative_with_images(narrative, output_dir)
     else:
         print("Narrative generation failed.")
+
 
 # Execute script
 if __name__ == "__main__":
