@@ -63,7 +63,7 @@ async def async_post_request(headers, data):
             print(f"Error during request: {e}")
             raise
 
-async def generate_narrative(analysis, token, file_path):
+async def generate_narrative(analysis, token, file_path, visualizations):
     """Generate narrative using LLM."""
     headers = {
         'Authorization': f'Bearer {token}',
@@ -71,14 +71,13 @@ async def generate_narrative(analysis, token, file_path):
     }
 
     prompt = (
-        f"You are a data analyst. Provide a detailed narrative based on the following data analysis results for the file '{file_path.name}':\n\n"
+        f"You are a data analyst. Provide a detailed narrative based on the following analysis for the file '{file_path.name}':\n\n"
         f"Column Names & Types: {list(analysis['summary'].keys())}\n\n"
         f"Summary Statistics: {analysis['summary']}\n\n"
         f"Missing Values: {analysis['missing_values']}\n\n"
         f"Correlation Matrix: {analysis['correlation']}\n\n"
-        "Please provide insights into trends, outliers, anomalies, or patterns. "
-        "Suggest further analyses like clustering or anomaly detection. "
-        "Discuss how these trends may impact future decisions."
+        "Please discuss how the trends, anomalies, or patterns in the data relate to the visualizations generated. "
+        "Include interpretations from distribution plots and correlation heatmaps."
     )
 
     data = {
@@ -86,21 +85,26 @@ async def generate_narrative(analysis, token, file_path):
         "messages": [{"role": "user", "content": prompt}]
     }
 
-    return await async_post_request(headers, data)
+    try:
+        narrative = await async_post_request(headers, data)
+        if not narrative:
+            return "Narrative generation failed due to an error."
+        return narrative
+    except Exception as e:
+        print(f"Error during narrative generation: {e}")
+        return "Narrative generation failed due to an error."
 
 async def analyze_data(df, token):
     """Use LLM to suggest and perform data analysis."""
     if df.empty:
         raise ValueError("Error: Dataset is empty.")
 
-    # Enhanced prompt for better LLM analysis suggestions
+    # Minimalist approach for efficient prompt
     prompt = (
-        f"You are a data analyst. Given the following dataset information, provide an analysis plan and suggest useful techniques:\n\n"
+        f"You are a data analyst. Given the following dataset information, provide a short analysis plan:\n\n"
         f"Columns: {list(df.columns)}\n"
-        f"Data Types: {df.dtypes.to_dict()}\n"
         f"First 5 rows of data:\n{df.head()}\n\n"
-        "Suggest data analysis techniques, such as correlation, regression, anomaly detection, clustering, or others. "
-        "Consider missing values, categorical variables, and scalability."
+        "Suggest the most relevant data analysis techniques (correlation, regression, etc.)."
     )
 
     headers = {
