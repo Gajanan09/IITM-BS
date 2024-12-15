@@ -241,7 +241,6 @@ async def visualize_data(df, output_dir):
             "as bimodal distributions, skewness, and unusual peaks in the data."
         )
         visualization_comments.append(comment)
-        print(f"Saved distribution plot: {file_name}")
 
     if len(numeric_columns) > 1:
         plt.figure(figsize=(10, 8))  # Larger heatmap size
@@ -265,7 +264,6 @@ async def visualize_data(df, output_dir):
             "which may reveal underlying patterns or redundancies in the data."
         )
         visualization_comments.append(comment)
-        print(f"Saved correlation heatmap: {file_name}")
 
     # Return visualizations and their associated comments
     return visualization_comments
@@ -388,8 +386,6 @@ async def main(file_path):
     except ValueError as e:
         print(e)
         sys.exit(1)
-
-    print(f"LLM Analysis Suggestions: {suggestions}")
 
     output_dir = Path(file_path.stem)
     output_dir.mkdir(exist_ok=True)
