@@ -80,7 +80,6 @@ async def generate_narrative(analysis, token, file_path):
     f"Chi-square Test Results: {dict(analysis.get('chi_square', 'N/A'))}\n\n"
     "Provide insights into trends, outliers, correlations, and patterns, and suggest further analysis or data exploration techniques."
 )
-
     data = {
         "model": "gpt-4o-mini",
         "messages": [{"role": "user", "content": prompt}]
@@ -136,26 +135,26 @@ async def analyze_data(df, token):
         }
 
     # Regression Analysis if columns A and B exist
-if 'A' in df.columns and 'B' in df.columns:
-    from sklearn.linear_model import LinearRegression
-    X = df[['A']].dropna()
-    y = df['B'].dropna()
-    reg = LinearRegression()
-    reg.fit(X, y)
-    analysis['regression'] = {
-        'coefficients': reg.coef_,
-        'intercept': reg.intercept_,
-        'r_squared': reg.score(X, y)
-    }
+    if 'A' in df.columns and 'B' in df.columns:
+        from sklearn.linear_model import LinearRegression
+        X = df[['A']].dropna()
+        y = df['B'].dropna()
+        reg = LinearRegression()
+        reg.fit(X, y)
+        analysis['regression'] = {
+            'coefficients': reg.coef_,
+            'intercept': reg.intercept_,
+            'r_squared': reg.score(X, y)
+        }
 
 # Chi-square test for categorical columns
-if 'category' in df.columns and 'target_column' in df.columns:
-    contingency_table = pd.crosstab(df['category'], df['target_column'])
-    chi2, p, dof, expected = stats.chi2_contingency(contingency_table)
-    analysis['chi_square'] = {
-        'chi2': chi2,
-        'p_value': p
-    }
+    if 'category' in df.columns and 'target_column' in df.columns:
+        contingency_table = pd.crosstab(df['category'], df['target_column'])
+        chi2, p, dof, expected = stats.chi2_contingency(contingency_table)
+        analysis['chi_square'] = {
+            'chi2': chi2,
+            'p_value': p
+        }
 
     print("Data analysis complete.")
     return analysis, suggestions
