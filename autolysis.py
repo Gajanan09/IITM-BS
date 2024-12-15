@@ -164,6 +164,11 @@ async def visualize_data(df, output_dir):
     sns.set(style="whitegrid")
     numeric_columns = df.select_dtypes(include=['number']).columns
 
+    # Handle the case when there are no numeric columns
+    if len(numeric_columns) == 0:
+        print("No numeric columns found for visualization.")
+        return
+
     # Select main columns for distribution based on importance
     selected_columns = numeric_columns[:3] if len(numeric_columns) >= 3 else numeric_columns
 
