@@ -46,7 +46,7 @@ async def load_data(file_path):
         result = chardet.detect(f.read())
     encoding = result['encoding']
     print(f"Detected file encoding: {encoding}")
-    return pd.read_csv(file_path, encoding=encoding or 'utf-8', nrows=1000)
+    return pd.read_csv(file_path, encoding=encoding or 'utf-8')
 
 async def async_post_request(headers, data):
     """Async function to make HTTP requests."""
@@ -70,23 +70,17 @@ async def generate_narrative(analysis, token, file_path):
         'Content-Type': 'application/json'
     }
 
-    # Handle regression analysis gracefully
-    regression_info = analysis.get('regression', None)
-    if regression_info is not None:
-        regression_str = f"Regression Analysis: {dict(regression_info)}\n\n"
-    else:
-        regression_str = "Regression Analysis: N/A\n\n"
-
     prompt = (
-    f"You are a data analyst. Provide a detailed narrative based on the following key data analysis results for the file '{file_path.name}':\n\n"
-    f"Column Names & Types: {list(analysis['summary'].keys())}\n\n"
-    f"Summary Statistics (Key Insights): {dict(analysis['summary']).get('mean', 'N/A')}\n\n"
-    f"Missing Values: {dict(analysis['missing_values'])}\n\n"
-    f"Correlation: {dict(analysis['correlation'])}\n\n"
-    f"{regression_str}"
-    f"Chi-square Test Results: {dict(analysis.get('chi_square', 'N/A'))}\n\n"
-    "Provide insights into trends, outliers, correlations, and patterns, and suggest further analysis or data exploration techniques."
-)
+        f"You are a data analyst. Provide a detailed narrative based on the following data analysis results for the file '{file_path.name}':\n\n"
+        f"Column Names & Types: {list(analysis['summary'].keys())}\n\n"
+        f"Summary Statistics: {analysis['summary']}\n\n"
+        f"Missing Values: {analysis['missing_values']}\n\n"
+        f"Correlation Matrix: {analysis['correlation']}\n\n"
+        "Please provide insights into trends, outliers, anomalies, or patterns. "
+        "Suggest further analyses like clustering or anomaly detection. "
+        "Discuss how these trends may impact future decisions."
+    )
+
     data = {
         "model": "gpt-4o-mini",
         "messages": [{"role": "user", "content": prompt}]
@@ -99,13 +93,37 @@ async def analyze_data(df, token):
     if df.empty:
         raise ValueError("Error: Dataset is empty.")
 
+    # Enhanced prompt for better LLM analysis suggestions
+    prompt = (
+        f"You are a data analyst. Given the following dataset information, provide an analysis plan and suggest useful techniques:\n\n"
+        f"Columns: {list(df.columns)}\n"
+        f"Data Types: {df.dtypes.to_dict()}\n"
+        f"First 5 rows of data:\n{df.head()}\n\n"
+        "Suggest data analysis techniques, such as correlation, regression, anomaly detection, clustering, or others. "
+        "Consider missing values, categorical variables, and scalability."
+    )
+
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    data = {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": prompt}]
+    }
+
+    try:
+        suggestions = await async_post_request(headers, data)
+    except Exception as e:
+        suggestions = f"Error fetching suggestions: {e}"
+
+    print(f"LLM Suggestions: {suggestions}")
+
     # Basic analysis (summary statistics, missing values, correlations)
     numeric_df = df.select_dtypes(include=['number'])
     analysis = {
-        # Ensure summary statistics dictionary is correctly formatted
-        'summary': df.describe(include='all').to_dict('index'),  # Use 'index' to ensure each column is a key-value pair
+        'summary': df.describe(include='all').to_dict(),
         'missing_values': df.isnull().sum().to_dict(),
-        # Ensure correlation is correctly formatted
         'correlation': numeric_df.corr().to_dict() if not numeric_df.empty else {}
     }
 
@@ -118,17 +136,12 @@ async def analyze_data(df, token):
         }
 
     print("Data analysis complete.")
-    return analysis
+    return analysis, suggestions
 
 async def visualize_data(df, output_dir):
     """Generate and save visualizations."""
     sns.set(style="whitegrid")
     numeric_columns = df.select_dtypes(include=['number']).columns
-
-    # Handle the case when there are no numeric columns
-    if len(numeric_columns) == 0:
-        print("No numeric columns found for visualization.")
-        return
 
     # Select main columns for distribution based on importance
     selected_columns = numeric_columns[:3] if len(numeric_columns) >= 3 else numeric_columns
@@ -136,27 +149,23 @@ async def visualize_data(df, output_dir):
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
- # Enhanced visualizations (distribution plots, heatmap)
+    # Enhanced visualizations (distribution plots, heatmap)
     for column in selected_columns:
         plt.figure(figsize=(6, 6))
-        sns.histplot(df[column].dropna(), kde=True, color='skyblue', label=column)
-        plt.title(f'Distribution of {column} (Key Insights)')
+        sns.histplot(df[column].dropna(), kde=True, color='skyblue')
+        plt.title(f'Distribution of {column}')
         plt.xlabel(column)
         plt.ylabel('Frequency')
-        plt.legend(title='Columns')
-        plt.annotate(f'Mean: {df[column].mean():.2f}', xy=(0.8, 0.9), xycoords='axes fraction', fontsize=12, color='red')
         file_name = output_dir / f'{column}_distribution.png'
         plt.savefig(file_name, dpi=100)
         print(f"Saved distribution plot: {file_name}")
         plt.close()
-    
-    # Adding legends and annotations to correlation heatmap
+
     if len(numeric_columns) > 1:
         plt.figure(figsize=(8, 8))
         corr = df[numeric_columns].corr()
-        sns.heatmap(corr, annot=True, cmap='coolwarm', square=True, cbar_kws={'label': 'Correlation Coefficient'})
-        plt.title('Correlation Heatmap (Insights from Analysis)')
-        plt.tight_layout()
+        sns.heatmap(corr, annot=True, cmap='coolwarm', square=True)
+        plt.title('Correlation Heatmap')
         file_name = output_dir / 'correlation_heatmap.png'
         plt.savefig(file_name, dpi=100)
         print(f"Saved correlation heatmap: {file_name}")
