@@ -76,7 +76,9 @@ async def generate_narrative(analysis, token, file_path):
     f"Summary Statistics (Key Insights): {dict(analysis['summary']).get('mean', 'N/A')}\n\n"
     f"Missing Values: {dict(analysis['missing_values'])}\n\n"
     f"Correlation: {dict(analysis['correlation'])}\n\n"
-    "Provide insights into trends, outliers, or patterns, and suggest possible further analyses."
+    f"Regression Analysis: {dict(analysis.get('regression', 'N/A'))}\n\n"
+    f"Chi-square Test Results: {dict(analysis.get('chi_square', 'N/A'))}\n\n"
+    "Provide insights into trends, outliers, correlations, and patterns, and suggest further analysis or data exploration techniques."
 )
 
     data = {
@@ -133,6 +135,28 @@ async def analyze_data(df, token):
             'p_value': p_value
         }
 
+    # Regression Analysis if columns A and B exist
+if 'A' in df.columns and 'B' in df.columns:
+    from sklearn.linear_model import LinearRegression
+    X = df[['A']].dropna()
+    y = df['B'].dropna()
+    reg = LinearRegression()
+    reg.fit(X, y)
+    analysis['regression'] = {
+        'coefficients': reg.coef_,
+        'intercept': reg.intercept_,
+        'r_squared': reg.score(X, y)
+    }
+
+# Chi-square test for categorical columns
+if 'category' in df.columns and 'target_column' in df.columns:
+    contingency_table = pd.crosstab(df['category'], df['target_column'])
+    chi2, p, dof, expected = stats.chi2_contingency(contingency_table)
+    analysis['chi_square'] = {
+        'chi2': chi2,
+        'p_value': p
+    }
+
     print("Data analysis complete.")
     return analysis, suggestions
 
@@ -147,27 +171,31 @@ async def visualize_data(df, output_dir):
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Enhanced visualizations (distribution plots, heatmap)
-    for column in selected_columns:
-        plt.figure(figsize=(6, 6))
-        sns.histplot(df[column].dropna(), kde=True, color='skyblue')
-        plt.title(f'Distribution of {column}')
-        plt.xlabel(column)
-        plt.ylabel('Frequency')
-        file_name = output_dir / f'{column}_distribution.png'
-        plt.savefig(file_name, dpi=100)
-        print(f"Saved distribution plot: {file_name}")
-        plt.close()
+ # Enhanced visualizations (distribution plots, heatmap)
+for column in selected_columns:
+    plt.figure(figsize=(6, 6))
+    sns.histplot(df[column].dropna(), kde=True, color='skyblue', label=column)
+    plt.title(f'Distribution of {column} (Key Insights)')
+    plt.xlabel(column)
+    plt.ylabel('Frequency')
+    plt.legend(title='Columns')
+    plt.annotate(f'Mean: {df[column].mean():.2f}', xy=(0.8, 0.9), xycoords='axes fraction', fontsize=12, color='red')
+    file_name = output_dir / f'{column}_distribution.png'
+    plt.savefig(file_name, dpi=100)
+    print(f"Saved distribution plot: {file_name}")
+    plt.close()
 
-    if len(numeric_columns) > 1:
-        plt.figure(figsize=(8, 8))
-        corr = df[numeric_columns].corr()
-        sns.heatmap(corr, annot=True, cmap='coolwarm', square=True)
-        plt.title('Correlation Heatmap')
-        file_name = output_dir / 'correlation_heatmap.png'
-        plt.savefig(file_name, dpi=100)
-        print(f"Saved correlation heatmap: {file_name}")
-        plt.close()
+# Adding legends and annotations to correlation heatmap
+if len(numeric_columns) > 1:
+    plt.figure(figsize=(8, 8))
+    corr = df[numeric_columns].corr()
+    sns.heatmap(corr, annot=True, cmap='coolwarm', square=True, cbar_kws={'label': 'Correlation Coefficient'})
+    plt.title('Correlation Heatmap (Insights from Analysis)')
+    plt.tight_layout()
+    file_name = output_dir / 'correlation_heatmap.png'
+    plt.savefig(file_name, dpi=100)
+    print(f"Saved correlation heatmap: {file_name}")
+    plt.close()
 
 async def save_narrative_with_images(narrative, output_dir):
     """Save narrative to README.md and embed image links."""
