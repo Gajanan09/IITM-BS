@@ -70,13 +70,20 @@ async def generate_narrative(analysis, token, file_path):
         'Content-Type': 'application/json'
     }
 
+    # Handle regression analysis gracefully
+    regression_info = analysis.get('regression', None)
+    if regression_info is not None:
+        regression_str = f"Regression Analysis: {dict(regression_info)}\n\n"
+    else:
+        regression_str = "Regression Analysis: N/A\n\n"
+
     prompt = (
     f"You are a data analyst. Provide a detailed narrative based on the following key data analysis results for the file '{file_path.name}':\n\n"
     f"Column Names & Types: {list(analysis['summary'].keys())}\n\n"
     f"Summary Statistics (Key Insights): {dict(analysis['summary']).get('mean', 'N/A')}\n\n"
     f"Missing Values: {dict(analysis['missing_values'])}\n\n"
     f"Correlation: {dict(analysis['correlation'])}\n\n"
-    f"Regression Analysis: {dict(analysis.get('regression', 'N/A'))}\n\n"
+    f"{regression_str}"
     f"Chi-square Test Results: {dict(analysis.get('chi_square', 'N/A'))}\n\n"
     "Provide insights into trends, outliers, correlations, and patterns, and suggest further analysis or data exploration techniques."
 )
