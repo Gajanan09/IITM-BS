@@ -23,14 +23,18 @@ import chardet
 from pathlib import Path
 import asyncio
 import scipy.stats as stats
+
+# Ensure UTF-8 output for compatibility
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
 # Constants
 API_URL = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
 
-# Ensure token is retrieved from environment variable
+# Helper Functions
+
 def get_token():
+    """Retrieve API token from environment variables."""
     try:
         return os.environ["AIPROXY_TOKEN"]
     except KeyError as e:
@@ -49,7 +53,7 @@ async def load_data(file_path):
     return pd.read_csv(file_path, encoding=encoding or 'utf-8')
 
 async def async_post_request(headers, data):
-    """Async function to make HTTP requests."""
+    """Make asynchronous HTTP POST requests."""
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(API_URL, headers=headers, json=data, timeout=30.0)
@@ -64,7 +68,7 @@ async def async_post_request(headers, data):
             raise
 
 async def generate_narrative(analysis, token, file_path):
-    """Generate narrative using LLM."""
+    """Generate a narrative using LLM based on data analysis."""
     headers = {
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json'
@@ -89,11 +93,11 @@ async def generate_narrative(analysis, token, file_path):
     return await async_post_request(headers, data)
 
 async def analyze_data(df, token):
-    """Use LLM to suggest and perform data analysis."""
+    """Perform data analysis and get insights from LLM."""
     if df.empty:
         raise ValueError("Error: Dataset is empty.")
 
-    # Enhanced prompt for better LLM analysis suggestions
+    # Initial analysis prompt
     prompt = (
         f"You are a data analyst. Given the following dataset information, provide an analysis plan and suggest useful techniques:\n\n"
         f"Columns: {list(df.columns)}\n"
@@ -107,6 +111,7 @@ async def analyze_data(df, token):
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json'
     }
+
     data = {
         "model": "gpt-4o-mini",
         "messages": [{"role": "user", "content": prompt}]
@@ -143,13 +148,13 @@ async def visualize_data(df, output_dir):
     sns.set(style="whitegrid")
     numeric_columns = df.select_dtypes(include=['number']).columns
 
-    # Select main columns for distribution based on importance
+    # Select columns for visualization
     selected_columns = numeric_columns[:3] if len(numeric_columns) >= 3 else numeric_columns
 
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Enhanced visualizations (distribution plots, heatmap)
+    # Generate visualizations (distribution plots and heatmap)
     for column in selected_columns:
         plt.figure(figsize=(6, 6))
         sns.histplot(df[column].dropna(), kde=True, color='skyblue')
@@ -182,22 +187,20 @@ async def save_narrative_with_images(narrative, output_dir):
     print(f"Narrative successfully written to {readme_path}")
 
 async def main(file_path):
+    """Main function to orchestrate the data analysis workflow."""
     print("Starting autolysis process...")
 
-    # Ensure input file exists
     file_path = Path(file_path)
     if not file_path.is_file():
         print(f"Error: File '{file_path}' does not exist.")
         sys.exit(1)
 
-    # Load token
     try:
         token = get_token()
     except Exception as e:
         print(e)
         sys.exit(1)
 
-    # Load dataset
     try:
         df = await load_data(file_path)
     except FileNotFoundError as e:
@@ -205,7 +208,6 @@ async def main(file_path):
         sys.exit(1)
     print("Dataset loaded successfully.")
 
-    # Analyze data with LLM insights
     print("Analyzing data...")
     try:
         analysis, suggestions = await analyze_data(df, token)
@@ -215,15 +217,12 @@ async def main(file_path):
 
     print(f"LLM Analysis Suggestions: {suggestions}")
 
-    # Create output directory
     output_dir = Path(file_path.stem)
     output_dir.mkdir(exist_ok=True)
 
-    # Generate visualizations with LLM suggestions
     print("Generating visualizations...")
     await visualize_data(df, output_dir)
 
-    # Generate narrative
     print("Generating narrative using LLM...")
     narrative = await generate_narrative(analysis, token, file_path)
 
@@ -232,10 +231,8 @@ async def main(file_path):
     else:
         print("Narrative generation failed.")
 
-# Execute script
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python script.py <file_path>")
         sys.exit(1)
     asyncio.run(main(sys.argv[1]))
-
