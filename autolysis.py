@@ -121,7 +121,7 @@ async def analyze_data(df, token):
     # Basic analysis (summary statistics, missing values, correlations)
     numeric_df = df.select_dtypes(include=['number'])
     analysis = {
-        'summary': df.describe(include='all').to_dict(),
+        'summary': df.describe(include='all').to_dict('index'),
         'missing_values': df.isnull().sum().to_dict(),
         'correlation': numeric_df.corr().to_dict() if not numeric_df.empty else {}
     }
