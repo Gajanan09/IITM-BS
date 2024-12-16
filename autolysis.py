@@ -15,7 +15,6 @@
 
 import os
 import sys
-from wsgiref import headers
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -241,6 +240,7 @@ async def visualize_data(df, output_dir):
             "as bimodal distributions, skewness, and unusual peaks in the data."
         )
         visualization_comments.append(comment)
+        print(f"Saved distribution plot: {file_name}")
 
     if len(numeric_columns) > 1:
         plt.figure(figsize=(10, 8))  # Larger heatmap size
@@ -264,89 +264,30 @@ async def visualize_data(df, output_dir):
             "which may reveal underlying patterns or redundancies in the data."
         )
         visualization_comments.append(comment)
+        print(f"Saved correlation heatmap: {file_name}")
 
     # Return visualizations and their associated comments
     return visualization_comments
 
-async def analyze_image_quality_and_content(output_dir, token):
-    """Analyze generated images using an image analysis agent."""
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-    image_analysis_results = {}
-    
-    # Iterate through images in the output directory
+
+async def analyze_images(output_dir):
+    """Analyze generated images for quality or content using vision techniques."""
+    insights = {}
     for img_path in output_dir.glob("*.png"):
         try:
             with Image.open(img_path) as img:
                 img_array = np.array(img)
-                # Example analysis: Check image properties
+                # Example analysis: Check brightness
                 brightness = np.mean(img_array)
-                size = img.size
-                mode = img.mode
-                image_analysis_results[img_path.name] = {
+                insights[img_path.name] = {
                     "brightness": brightness,
-                    "size": size,
-                    "mode": mode
+                    "size": img.size,
+                    "mode": img.mode
                 }
-                
-                # Sending image quality insights to an agent for further interpretation
-                analysis_prompt = (
-                    f"Analyze the following image characteristics:\n"
-                    f"Image Name: {img_path.name}\n"
-                    f"Brightness: {brightness}\n"
-                    f"Size: {size}\n"
-                    f"Mode: {mode}\n\n"
-                    "Provide feedback on how these characteristics affect the overall "
-                    "quality and interpretability of the visualizations for the given dataset."
-                )
-                data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": analysis_prompt}]}
-                image_quality_feedback = await async_post_request(headers, data)
-                image_analysis_results[img_path.name]["feedback"] = image_quality_feedback
-                
         except Exception as e:
             print(f"Error analyzing image {img_path.name}: {e}")
-    
-    return image_analysis_results
-
-async def agentic_workflow_for_visualizations_and_analysis(df, output_dir, token):
-    """Manage the multi-agent workflow for visualizations and image analysis."""
-    print("Starting multi-agent workflow...")
-
-    # Step 1: Generate visualizations and return commentary
-    print("Generating visualizations and gathering insights...")
-    visualization_comments = await visualize_data(df, output_dir)
-
-    # Step 2: Analyze the visualizations with an image analysis agent
-    print("Analyzing image quality and content...")
-    image_analysis = await analyze_image_quality_and_content(output_dir, token)
-    
-    # Step 3: Combine insights and generate a comprehensive analysis report
-    print("Generating report with multi-agent feedback...")
-    comprehensive_report = ""
-    comprehensive_report += "\n\n### Visualization Insights\n" + "\n".join(visualization_comments)
-    comprehensive_report += "\n\n### Image Analysis Feedback\n"
-    
-    for img, analysis in image_analysis.items():
-        comprehensive_report += (
-            f"\n- **Image: {img}**\n"
-            f"  - Brightness: {analysis['brightness']}\n"
-            f"  - Size: {analysis['size']}\n"
-            f"  - Mode: {analysis['mode']}\n"
-            f"  - Feedback: {analysis['feedback']}\n"
-        )
-    
-    # Step 4: Generate further insights using another agent (optional)
-    headers= {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-    additional_analysis_prompt = (
-        f"Given the following report, generate further insights about the data:\n\n"
-        f"Report: {comprehensive_report}\n\n"
-        "Provide suggestions on further analyses or actions that should be taken based on this data."
-    )
-    data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": additional_analysis_prompt}]}
-    additional_feedback = await async_post_request(headers, data)
-    comprehensive_report += "\n\n### Further Insights\n" + additional_feedback
-
-    return comprehensive_report
-
+    print(f"Image analysis insights: {insights}")
+    return insights
 
 async def save_narrative_with_images(narrative, output_dir):
     """Save narrative to README.md and embed image links."""
@@ -387,18 +328,17 @@ async def main(file_path):
         print(e)
         sys.exit(1)
 
+    print(f"LLM Analysis Suggestions: {suggestions}")
+
     output_dir = Path(file_path.stem)
     output_dir.mkdir(exist_ok=True)
 
     print("Generating visualizations...")
     await visualize_data(df, output_dir)
 
-    analysis_report = await agentic_workflow_for_visualizations_and_analysis(df, output_dir, token)
-
-    # Step 2: Save the final analysis report with insights
-    readme_path = output_dir / 'README.md'
-    with open(readme_path, 'w', encoding='utf-8') as f:
-        f.write(analysis_report)
+    print("Analyzing generated images...")
+    image_insights = await analyze_images(output_dir)
+    print(f"Image Insights: {image_insights}")
 
 
     print("Generating refined narrative using iterative LLM calls...")
